@@ -1,10 +1,13 @@
 // ============================================================================
-// 💰 محرك رسم المالية (modules/finance/financeRender.js) - Cloud-Native V19.0 💎
-// 🚀 التحديثات المعمارية (V19.0 - Zero-Bleed Cloud Search, Pending Tab Fix & Persistent Counters): 
-// 1. Pending Tab Fix 🐛: إصلاح إرسال status='pending' للسيرفر لجلب كافة الإيداعات المعلقة بدقة.
-// 2. Zero-Bleed Cloud Search 🔍: ربط البحث والتاريخ بالسيرفر مع منع الاستدعاءات المكررة وعند مسح البحث.
-// 3. Persistent Tab & Sidebar Counters 📊: حماية عدادات التبويبات وشارة القائمة الجانبية (#badge-dep) من التصفير عبر الكلاسات القياسية.
-// 4. Liquidity Fetch Guard 🛡️: منع تكرار استدعاء سيولة المحافظ السحابي إذا كان الرصيد الكلي صفراً.
+// 💰 محرك رسم المالية (modules/finance/financeRender.js) - Cloud-Native V19.5 💎
+// 🚀 التحديثات المعمارية:
+// 1. Reactive Cloud Search & Clean Reset 🔍: تصحيح كشف مسح البحث وتصفير الكاش مع عرض مؤشر التحميل النظيف عند تغير معايير الاستعلام.
+// 2. Dual-Layer ID Search 🎯: فحص وجود الإيداع في القائمة المعروضة حالياً AdminData.data.deposits قبل التراجع لتفادي الجلب غير الضروري.
+// 3. Loop Shield 🛡️: إزالة استدعاء _checkAndScheduleCloudReload من renderDeposits لمنع تكرار الاستعلامات والاعتماد الكامل على EventBus.
+// 4. Zero Inline Styles 🧹: استخدام كلاس النظام .hide-element بدلاً من التنسيق المباشر.
+// 5. Normalized Empty State 📐: توحيد بنية شاشات التحميل والحالات الفارغة عبر .empty-state.
+// 6. Persistent Tab & Sidebar Counters 📊: تثبيت عدادات التبويبات وشارة القائمة الجانبية (#badge-dep) وحمايتها من التصفير العرضي.
+// 7. Race-Condition Armor 🛡️: حماية التبديل السريع بين التبويبات باستخدام _fetchRequestId لضمان عدم تداخل استجابات السحابة المتأخرة.
 // ============================================================================
 
 import { AdminData } from '../../adminData.js';
@@ -18,6 +21,9 @@ import { FirebaseAdapter } from '../../core/firebaseAdapter.js';
 export const FinanceRender = {
     depositsLimit: 50,
     tabState: 'all',
+    _loadedTabState: 'all',
+    _needsCloudReload: false,
+    _fetchRequestId: 0,
     filters: {},
     _currentFilteredData: [],
     _tabCountsCache: { all: 0, pending: 0, approved: 0, rejected: 0, refunded: 0 },
@@ -38,6 +44,12 @@ export const FinanceRender = {
             }
         });
         EventBus.on('req-clear-render-filters', () => {
+            if (this._loadedTabState !== 'all' || this._lastCloudQuerySig !== '||') {
+                this._needsCloudReload = true;
+                AdminData.cursors.deposits = null;
+                AdminData.data.deposits = [];
+                this._currentFilteredData = [];
+            }
             this.tabState = 'all';
             this.depositsLimit = 50;
             this.filters = {};
@@ -51,60 +63,66 @@ export const FinanceRender = {
     },
 
     _checkAndScheduleCloudReload: function() {
-    const f = this.filters || {};
-    const searchStr = String(f.search || '').trim();
-    const prevParts = (this._lastCloudQuerySig || '||').split('|');
-    const datesChanged = (String(prevParts[1] || '') !== String(f.start || '')) || (String(prevParts[2] || '') !== String(f.end || ''));
-    
-    if (!datesChanged && searchStr.length > 0 && searchStr.length < 3) {
-        return;
-    }
-    
-    if (!datesChanged && searchStr === '' && prevParts[0] !== '') {
-        this._lastCloudQuerySig = this._getCloudQuerySignature();
-        this.renderDeposits();
-        return;
-    }
-    
-    if (!datesChanged && /^(#?DEP-|#?TC-|#?ADMBAL-)/i.test(searchStr)) {
-        const cleanId = searchStr.replace(/^(#|DEP-)\s*/i, '').trim().toUpperCase();
-        if (AdminData.data?.depositsMap?.[cleanId]) {
-            this._lastCloudQuerySig = this._getCloudQuerySignature();
+        const f = this.filters || {};
+        const searchStr = String(f.search || '').trim();
+        const prevParts = (this._lastCloudQuerySig || '||').split('|');
+        const datesChanged = (String(prevParts[1] || '') !== String(f.start || '')) || (String(prevParts[2] || '') !== String(f.end || ''));
+        
+        if (!datesChanged && searchStr.length > 0 && searchStr.length < 3) {
             return;
         }
-    }
-    
-    const newSig = this._getCloudQuerySignature();
-    if (newSig === this._lastCloudQuerySig) return;
-    
-    if (this._cloudSearchTimer) clearTimeout(this._cloudSearchTimer);
-    this._cloudSearchTimer = setTimeout(() => {
-        this.triggerCloudFilterReload();
-    }, 450);
-},
+        
+        if (!datesChanged && /^(#?DEP-|#?TC-|#?ADMBAL-)/i.test(searchStr)) {
+            const cleanId = searchStr.replace(/^(#|DEP-)\s*/i, '').trim().toUpperCase();
+            const existsInCurrentList = Array.isArray(AdminData.data?.deposits) && AdminData.data.deposits.some(d => 
+                String(d.id || '').toUpperCase() === cleanId ||
+                String(d.displayId || '').toUpperCase() === cleanId
+            );
+            if (existsInCurrentList) {
+                this._lastCloudQuerySig = this._getCloudQuerySignature();
+                return;
+            }
+        }
+        
+        const newSig = this._getCloudQuerySignature();
+        if (newSig === this._lastCloudQuerySig) return;
+        
+        if (this._cloudSearchTimer) clearTimeout(this._cloudSearchTimer);
+        this._cloudSearchTimer = setTimeout(() => {
+            this.triggerCloudFilterReload();
+        }, 450);
+    },
+
     triggerCloudFilterReload: function() {
-    if (this._cloudSearchTimer) {
-        clearTimeout(this._cloudSearchTimer);
-        this._cloudSearchTimer = null;
-    }
+        if (this._cloudSearchTimer) {
+            clearTimeout(this._cloudSearchTimer);
+            this._cloudSearchTimer = null;
+        }
+        
+        const prevParts = (this._lastCloudQuerySig || '||').split('|');
+        const newSig = this._getCloudQuerySignature();
+        const newParts = newSig.split('|');
+        this._lastCloudQuerySig = newSig;
+        
+        const searchChanged = (prevParts[0] !== newParts[0]);
+        const datesChanged = (prevParts[1] !== newParts[1]) || (prevParts[2] !== newParts[2]);
+
+        this.depositsLimit = 50;
+        AdminData.cursors.deposits = null;
+        this._needsCloudReload = false;
+
+        if (searchChanged || datesChanged) {
+            AdminData.data.deposits = [];
+            this._currentFilteredData = [];
+            const list = document.getElementById('deposits-container');
+            if (list) {
+                list.innerHTML = '<div class="empty-state"><i class="fa-solid fa-circle-notch fa-spin"></i><span>جاري جلب الإيداعات من السيرفر...</span></div>';
+            }
+        }
+        this.loadMoreDeposits();
+    },    
     
-    const prevParts = (this._lastCloudQuerySig || '||').split('|');
-    const newSig = this._getCloudQuerySignature();
-    const newParts = newSig.split('|');
-    this._lastCloudQuerySig = newSig;
-    
-    const datesChanged = (prevParts[1] !== newParts[1]) || (prevParts[2] !== newParts[2]);
-    const searchCleared = (prevParts[0] !== '' && newParts[0] === '');
-    
-    this.depositsLimit = 50;
-    AdminData.cursors.deposits = null;
-    
-    if (datesChanged || searchCleared) {
-        AdminData.data.deposits = [];
-        this._currentFilteredData = [];
-    }
-    this.loadMoreDeposits();
-},    adjustTabCountersOnStatusChange: function(oldStatus, newStatus) {
+    adjustTabCountersOnStatusChange: function(oldStatus, newStatus) {
         if (oldStatus === newStatus) return;
         if (this._tabCountsCache[oldStatus] !== undefined && this._tabCountsCache[oldStatus] > 0) {
             this._tabCountsCache[oldStatus]--;
@@ -117,28 +135,32 @@ export const FinanceRender = {
     filterByTab: function(status, btnElement) {
         this.tabState = status;
         this.depositsLimit = 50;
+        this._needsCloudReload = false;
         
         AdminData.cursors.deposits = null;
         AdminData.data.deposits = [];
         this._currentFilteredData = [];
         
         const container = document.getElementById('tabs-deposits');
-        if(container) {
+        if (container) {
             container.querySelectorAll('.main-tab-btn').forEach(btn => btn.classList.remove('active'));
-            if(btnElement) btnElement.classList.add('active');
+            const targetBtn = btnElement || container.querySelector(`.main-tab-btn[data-val="${status}"]`);
+            if (targetBtn) targetBtn.classList.add('active');
         }
         
         const list = document.getElementById('deposits-container');
-        if (list) list.innerHTML = '<div class="w-100 text-center p-20 text-muted"><i class="fa-solid fa-circle-notch fa-spin"></i> جاري جلب البيانات السحابية...</div>';
+        if (list) list.innerHTML = '<div class="empty-state"><i class="fa-solid fa-circle-notch fa-spin"></i><span>جاري جلب البيانات السحابية...</span></div>';
         
         this.loadMoreDeposits(); 
     },
 
     loadMoreDeposits: async function() {
-        if (this._isFetchingCloud) return;
+        const isPaginationClick = Boolean(AdminData.cursors.deposits);
+        if (isPaginationClick && this._isFetchingCloud) return;
         this._isFetchingCloud = true;
+        const reqId = ++this._fetchRequestId;
 
-        const btn = document.querySelector('#load-more-deps-btn .btn-load-more') || document.querySelector('.btn-load-more');
+        const btn = document.querySelector('#load-more-deps-btn .btn-load-more');
         if (btn) {
             btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> جاري التحميل من السحابة...';
             btn.disabled = true;
@@ -146,10 +168,11 @@ export const FinanceRender = {
         
         try {
             this._lastCloudQuerySig = this._getCloudQuerySignature();
+            const requestedTab = this.tabState || 'all';
             const activeSearchTerm = this.filters.search ? String(this.filters.search).trim() : null;
             const payload = {
-                limit: this.tabState === 'pending' ? 200 : 50,
-                status: (this.tabState && this.tabState !== 'all') ? this.tabState : null,
+                limit: requestedTab === 'pending' ? 200 : 50,
+                status: (requestedTab && requestedTab !== 'all') ? requestedTab : null,
                 startDateMs: this.filters.start || null,
                 endDateMs: this.filters.end || null,
                 searchQuery: activeSearchTerm,
@@ -158,6 +181,8 @@ export const FinanceRender = {
             };
             
             const res = await FirebaseAdapter.callFunction('adminGetDepositsList', payload);
+            if (reqId !== this._fetchRequestId) return;
+            this._loadedTabState = requestedTab;
             
             if (res && res.success && res.data && res.data.length > 0) {
                 const currentDepsMap = new Map((AdminData.data.deposits || []).map(d => [d.id, d]));
@@ -195,21 +220,29 @@ export const FinanceRender = {
                 this.renderDeposits(); 
             }
         } catch (error) {
+            if (reqId !== this._fetchRequestId) return;
             console.error("🚨 فشل جلب المزيد من الإيداعات السحابية:", error);
             if (btn) {
                 btn.innerHTML = '<i class="fa-solid fa-rotate-right"></i> حاول مجدداً';
             }
         } finally {
-            this._isFetchingCloud = false;
-            if (btn && AdminData.cursors.deposits) btn.disabled = false;
+            if (reqId === this._fetchRequestId) {
+                this._isFetchingCloud = false;
+                if (btn && AdminData.cursors.deposits) btn.disabled = false;
+            }
         }
     },
 
     renderDeposits: function() {
         const list = document.getElementById('deposits-container'); 
-        if(!list) return;
-        
-        this._checkAndScheduleCloudReload();
+        if (!list) return;
+
+        if (this._needsCloudReload) {
+            this._needsCloudReload = false;
+            list.innerHTML = '<div class="empty-state"><i class="fa-solid fa-circle-notch fa-spin"></i><span>جاري جلب البيانات السحابية...</span></div>';
+            this.loadMoreDeposits();
+            return;
+        }
 
         const f = this.filters || {};
         let currentSnapshotData = Array.isArray(AdminData.data.deposits) ? AdminData.data.deposits : [];
@@ -224,7 +257,7 @@ export const FinanceRender = {
         currentSnapshotData.forEach(d => combinedMap.set(d.id, d));        
         let data = Array.from(combinedMap.values());
 
-        if(f.search) {
+        if (f.search) {
             const rawSearch = String(f.search).trim().toLowerCase();
             const s = rawSearch.replace(/^(#|dep-|usr-|id:?)\s*/i, '').trim();
             if (s) {
@@ -299,10 +332,9 @@ export const FinanceRender = {
         const displayCounts = isUnfilteredView ? this._tabCountsCache : localCounts;
         ['all', 'pending', 'approved', 'rejected', 'refunded'].forEach(st => {
             const el = document.getElementById(`count-dep-${st}`);
-            if(el) { el.innerText = Utils.enNum(displayCounts[st] || 0); el.setAttribute('lang', 'en'); }
+            if (el) { el.innerText = Utils.enNum(displayCounts[st] || 0); el.setAttribute('lang', 'en'); }
         });
 
-        // 🚀 تم الإصلاح: شارة القائمة الجانبية تعتمد دائماً على العدد الكلي بالاعتماد على الكلاسات الموحدة
         const sidebarBadge = document.getElementById('badge-dep');
         if (sidebarBadge) {
             const globalPendingCount = this._tabCountsCache.pending || 0;
@@ -316,7 +348,7 @@ export const FinanceRender = {
             }
         }
 
-        if(currentTab !== 'all') {
+        if (currentTab !== 'all') {
             data = data.filter(d => (d.status || 'pending') === currentTab);
         }
 
@@ -333,7 +365,7 @@ export const FinanceRender = {
 
         const hasMoreInCloud = AdminData.cursors.deposits !== null && AdminData.cursors.deposits !== undefined;
         
-        if(!data.length && !hasMoreInCloud) { 
+        if (!data.length && !hasMoreInCloud) { 
             list.innerHTML = FinanceTemplates.emptyDeposits(); 
             return; 
         }
@@ -366,21 +398,21 @@ export const FinanceRender = {
     },
 
     renderWalletsOverview: async function(forceRefresh = false) {
-            const container = document.getElementById('wallets-overview-grid');
-            if (!container) return;
-            
-            let liquidityData = AdminData.getWalletsLiquidity ? AdminData.getWalletsLiquidity() : null;
-            const alreadyLoadedByDash = Boolean(AdminData.data?.dashboardStats?.wallets && liquidityData && liquidityData.details);
-            
-            if (forceRefresh || (!this._liquidityFetchedOnce && !alreadyLoadedByDash) || !liquidityData || !liquidityData.details) {
-                container.innerHTML = '<div class="text-center p-20 text-muted"><i class="fa-solid fa-circle-notch fa-spin icon-me-2"></i> جاري تجميع سيولة المحافظ من السحابة...</div>';
-                if (typeof AdminData.fetchWalletsLiquidityAsync === 'function') {
-                    liquidityData = await AdminData.fetchWalletsLiquidityAsync();
-                    this._liquidityFetchedOnce = true;
-                }
-            } else if (alreadyLoadedByDash) {
+        const container = document.getElementById('wallets-overview-grid');
+        if (!container) return;
+        
+        let liquidityData = AdminData.getWalletsLiquidity ? AdminData.getWalletsLiquidity() : null;
+        const alreadyLoadedByDash = Boolean(AdminData.data?.dashboardStats?.wallets && liquidityData && liquidityData.details);
+        
+        if (forceRefresh || (!this._liquidityFetchedOnce && !alreadyLoadedByDash) || !liquidityData || !liquidityData.details) {
+            container.innerHTML = '<div class="empty-state"><i class="fa-solid fa-circle-notch fa-spin"></i><span>جاري تجميع سيولة المحافظ من السحابة...</span></div>';
+            if (typeof AdminData.fetchWalletsLiquidityAsync === 'function') {
+                liquidityData = await AdminData.fetchWalletsLiquidityAsync();
                 this._liquidityFetchedOnce = true;
-            }        
+            }
+        } else if (alreadyLoadedByDash) {
+            this._liquidityFetchedOnce = true;
+        }        
         if (!liquidityData || !liquidityData.details) {
             liquidityData = { totalUsd: 0, details: {}, hasUncalculated: false, uncalculatedCurrencies: [] };
         }
@@ -407,7 +439,7 @@ export const FinanceRender = {
 
     renderRates: function() {
         const grid = document.getElementById('rates-grid');
-        if(!grid) return;
+        if (!grid) return;
         const rates = normalizeRates(AdminData.data.rates);
         const defaultDisplayCurr = AdminData.data.settings?.defaultCurrency || 'USD';
         grid.innerHTML = rates.map(c => FinanceTemplates.rateCard(c, (c.code === defaultDisplayCurr))).join('');
@@ -415,7 +447,7 @@ export const FinanceRender = {
 
     renderPaymentList: function() {
         const list = document.getElementById('pay-grid'); 
-        if(!list) return;
+        if (!list) return;
         
         const payments = AdminData.data.payments || [];
         if (payments.length === 0) {
@@ -428,8 +460,8 @@ export const FinanceRender = {
 
     renderPayDetailList: function(detailsArray) {
         const list = document.getElementById('pay-det-list');
-        if(!list) return;
-        if(!detailsArray || detailsArray.length === 0) { list.innerHTML = FinanceTemplates.emptyPayDetails(); return; }
+        if (!list) return;
+        if (!detailsArray || detailsArray.length === 0) { list.innerHTML = FinanceTemplates.emptyPayDetails(); return; }
         list.innerHTML = detailsArray.map((item, i) => {
             const text = typeof item === 'string' ? item : (item.text || '');
             const isCopyable = typeof item === 'string' ? true : (item.copyable !== false);
@@ -548,8 +580,11 @@ export const FinanceRender = {
         const url = window.URL.createObjectURL(blob);
         link.setAttribute("href", url); 
         link.setAttribute("download", filename);
-        link.style.visibility = 'hidden';
-        document.body.appendChild(link); link.click(); document.body.removeChild(link); window.URL.revokeObjectURL(url);
+        link.className = 'hide-element'; // ✅ Zero Inline Styles
+        document.body.appendChild(link); 
+        link.click(); 
+        document.body.removeChild(link); 
+        window.URL.revokeObjectURL(url);
         UIService?.showToast?.("تم تحميل التقرير بنجاح", "success");
     }
 };

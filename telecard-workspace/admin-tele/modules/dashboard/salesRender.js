@@ -1,11 +1,12 @@
 // ============================================================================
-// 📈 محرك رسم وتحليل المبيعات (modules/dashboard/salesRender.js) - Ultimate Hybrid V20.1 💎
+// 📈 محرك رسم وتحليل المبيعات (modules/dashboard/salesRender.js) - Ultimate Hybrid V20.6 💎
 // 🎯 الوظيفة: استهلاك البيانات المركزية، الفلترة الزمنية، ورسم التقارير والتصدير
-// 🚀 التحديثات المعمارية (V20.1 - Fast BI Stats & Source Chart Fix): 
-// 1. Fast BI Stats ⚡: تسريع تقرير كبار العملاء عبر قراءة telecard_user_stats بدلاً من سحب آلاف الطلبات!
-// 2. Source Chart Fix 🍩: ربط المخطط الدائري بالمصادر الحقيقية وحمايته من القيم السالبة.
-// 3. Math & Memory Shields 🛡️: تصفير ذاكرة المخططات فور تدميرها، وحماية الـ Margin من القسمة على صفر.
-// 4. Ghost & Zero-Spend Filter 👻: استبعاد العملاء المحذوفين والإنفاق الصفري من منصة الشرف وقراءة الصور بأمان.
+// 🌟 التحديثات المعمارية:
+// 1. Dynamic Chart Period Titles 🏷️: تحديث عنوان كارت المبيعات والأرباح ليعكس الفترة الزمنية المحددة تلقائياً.
+// 2. Persistent Top Customers Button 👥: ضمان ظهور زر تقرير كبار العملاء بعد منصة التتويج حتى في حال عدم وجود منتجات مباعة.
+// 3. Strict UTC Boundaries & Deep Pricing ⏱️: توحيد بدايات أيام UTC واحتساب السعر الدقيق من جميع حقول التسعير الممكنة.
+// 4. Sales Capsules & Visual Consistency 💊: الحفاظ على كلاس .sales-super-capsules وكلاس .podium-ghost لضمان التناسق البصري.
+// 5. Request Token Concurrency (reqId) 🛡️: منع تداخل الطلبات (Race Conditions) وتأمين ثبات بيانات الـ UI مع الفلتر.
 // ============================================================================
 
 import { AdminData } from '../../adminData.js';
@@ -22,17 +23,21 @@ export const SalesRender = {
     
     _latestStatsCache: null, 
     _listenersBound: false,
-    _isRendering: false,
+    _renderReqId: 0, // نظام الـ Request Token بدلاً من _isRendering
     _lastThemeState: null,
+    _salesCacheByRange: {},
+    _detailedChartInst: null,
+    _sourceChartInst: null,
 
     initListeners: function() {
         if (this._listenersBound) return; 
         this._listenersBound = true;
 
-        EventBus.on('req-render-sales', () => {
+        EventBus.on('req-render-sales', (opts) => {
+            const forceRefresh = Boolean(opts && opts.force === true);
             const selectEl = document.querySelector('[data-action="change-sales-range"]');
             if (selectEl) selectEl.value = this.state.timeRange;
-            this.renderSales();
+            this.renderSales(forceRefresh);
         });
         
         EventBus.on('change-sales-range', (data) => {
@@ -42,11 +47,10 @@ export const SalesRender = {
             this.renderSales();
         });
 
-        // 🚀 [الإصلاح المعماري 2]: ربط الحدث الصحيح المسجل في systemActions.js لمنع تحذير (حدث غير مبرمج)
         EventBus.on('req-load-top-customers', () => this.loadTopCustomersReport());
 
         this._lastThemeState = document.body.classList.contains('light-mode');
-        const themeObserver = new MutationObserver((mutations) => {
+        const themeObserver = new MutationObserver(() => {
             const currentThemeState = document.body.classList.contains('light-mode');
             if (this._lastThemeState !== currentThemeState) {
                 this._lastThemeState = currentThemeState;
@@ -75,7 +79,6 @@ export const SalesRender = {
             const range = this.state.timeRange;
             let topUsersFull = [];
 
-            // 🚀 [الإصلاح المعماري 1]: قراءة جدول الإحصائيات مع فلترة الأشباح (isDeleted) والإنفاق الصفري
             if (range === 'all') {
                 const snap = await getDocs(query(collection(FirebaseAdapter.db, 'telecard_users'), orderBy('totalSpent', 'desc'), limit(60)));
                 topUsersFull = snap.docs
@@ -105,28 +108,27 @@ export const SalesRender = {
                     });
             } 
             else {
-                // للفترات المخصصة (7 أيام أو 90 يوماً)، نعتمد على جلب الطلبات المحدودة
-                let startTime = 0;
-                if (range === 'today') startTime = Date.now() - 86400000;
-                else if (range === '7days') startTime = Date.now() - (7 * 86400000);
-                else if (range === '30days') startTime = Date.now() - (30 * 86400000);
-                else if (range === '90days') startTime = Date.now() - (90 * 86400000);
-
+                const todayUTCStart = FinancialEngine.getStartOfUTCDay(Date.now());
+                let startTime = todayUTCStart;
+                if (range === 'today') startTime = todayUTCStart;
+                else if (range === '7days') startTime = todayUTCStart - (6 * 86400000);
+                else if (range === '30days') startTime = todayUTCStart - (29 * 86400000);
+                else if (range === '90days') startTime = todayUTCStart - (89 * 86400000);
+                
                 const res = await FirebaseAdapter.callFunction('adminGetOrdersList', { limit: 1000, status: 'completed', startDateMs: startTime });
-
+                
                 if (res && res.success && res.data) {
                     const userMapLocal = {};
-        res.data.forEach(o => {
-            const uid = String(o.userId);
-            if (AdminData.data.usersMap?.[uid]?.isDeleted === true) return;
-            if (!userMapLocal[uid]) userMapLocal[uid] = { spent: 0, name: o.userDataSnapshot?.fullName || o.userName || 'عميل', displayId: o.userDataSnapshot?.displayId || uid.substring(0, 8) };
-const exactPrice = Number(o.priceBaseUsd ?? o.pricingSnapshot?.finalPriceUsd ?? o.pricingSnapshot?.finalPrice ?? o.price ?? 0);
+                    res.data.forEach(o => {
+                        const uid = String(o.userId);
+                        if (AdminData.data.usersMap?.[uid]?.isDeleted === true) return;
+                        if (!userMapLocal[uid]) userMapLocal[uid] = { spent: 0, name: o.userDataSnapshot?.fullName || o.userName || 'عميل', displayId: o.userDataSnapshot?.displayId || uid.substring(0, 8) };
+                        const exactPrice = Number(o.priceBaseUsd ?? o.pricingSnapshot?.totalFinalPrice ?? o.pricingSnapshot?.finalPriceUsd ?? o.pricingSnapshot?.finalPrice ?? o.baseUsd ?? o.price ?? 0);
                         userMapLocal[uid].spent = FinancialEngine.safeAdd(userMapLocal[uid].spent, exactPrice);
-                    });
-                    
+                    });                   
                     topUsersFull = Object.entries(userMapLocal)
                         .map(([id, data]) => ({ id, ...data }))
-                        .filter(u => u.spent > 0) // فلترة الإنفاق الصفري
+                        .filter(u => u.spent > 0)
                         .sort((a, b) => b.spent - a.spent)
                         .slice(0, 50);
                 }
@@ -137,21 +139,21 @@ const exactPrice = Number(o.priceBaseUsd ?? o.pricingSnapshot?.finalPriceUsd ?? 
                 html = DashboardTemplates.emptyTopCustomers();
             } else {
                 html = topUsersFull.map((u, i) => {
+                    const rawCleanName = String(u.name || '').replace(/[\u064B-\u065F'"`<>\/\\]/g, '').trim();
+                    const fallbackChar = Utils.escapeHTML(Array.from(rawCleanName)[0] || '?');
                     const safeName = Utils.escapeHTML(u.name);
-                    const cleanName = safeName.replace(/[\u064B-\u065F]/g, '').trim(); 
-                    const fallbackChar = Array.from(cleanName)[0] || '?';
 
                     return `
-                        <div class="d-flex align-items-center justify-content-between p-10 mb-10 top-customer-row interactive-scale">
-                            <div class="d-flex align-items-center gap-3">
-                                <span class="fs-14 fw-bold text-muted font-numeric" dir="ltr" style="min-width: 25px;">#${i + 1}</span>
+                        <div class="flex-between p-10 mb-10 top-customer-row clickable interactive-scale" data-action="view-user" data-id="${Utils.escapeHTML(u.id)}">
+                            <div class="flex-align-center gap-2">
+                                <span class="tc-rank-num num-en font-numeric" dir="ltr" lang="en">#${i + 1}</span>
                                 <div class="avatar-fallback-icon">${fallbackChar}</div>
                                 <div>
-                                    <div class="fw-bold text-truncate" style="max-width: 150px;" title="${safeName}">${safeName}</div>
-                                    <div class="fs-11 text-muted num-en font-numeric" dir="ltr">${Utils.escapeHTML(u.displayId)}</div>
+                                    <div class="fw-bold max-w-150" title="${safeName}">${safeName}</div>
+                                    <div class="fs-11 text-muted num-en font-numeric" dir="ltr" lang="en">${Utils.escapeHTML(u.displayId)}</div>
                                 </div>
                             </div>
-                            <div class="text-gold fw-bold num-en font-numeric" dir="ltr">${RenderHelpers.formatMoney(u.spent, 'USD', 2)}</div>
+                            <div class="text-gold fw-bold num-en font-numeric" dir="ltr" lang="en">${RenderHelpers.formatMoney(u.spent, 'USD', 2)}</div>
                         </div>
                     `;
                 }).join('');
@@ -171,25 +173,37 @@ const exactPrice = Number(o.priceBaseUsd ?? o.pricingSnapshot?.finalPriceUsd ?? 
         }
     },
 
-    renderSales: async function() {
+    renderSales: async function(forceRefresh = false) {
         const salesView = document.getElementById('view-sales');
         if (!salesView || !salesView.classList.contains('active')) return;
-
-        if (this._isRendering) return;
-        this._isRendering = true;
-
-        if (window.AdminUI?.toggleLoader) window.AdminUI.toggleLoader(true, 'جاري تحليل المبيعات السحابية...');
-
+        
+        const reqId = ++this._renderReqId; // توثيق الطلب لمنع الـ Race Condition
+        const rangeKey = this.state.timeRange || '30days'; // تجميد المتغير المحلي
+        const cachedEntry = this._salesCacheByRange[rangeKey];
+        const canUseCache = !forceRefresh && cachedEntry && (Date.now() - cachedEntry.fetchedAt < 180000);
+        
+        if (!canUseCache && window.AdminUI?.toggleLoader) {
+            window.AdminUI.toggleLoader(true, 'جاري تحليل المبيعات السحابية...');
+        }
+        
         try {
-            const biData = await AdminData.fetchSalesBIAsync(this.state.timeRange);
+            const biData = canUseCache ?
+                cachedEntry.data :
+                await AdminData.fetchSalesBIAsync(rangeKey);
+            
+            // إلغاء الطلبات المتأخرة إذا قام المدير بتغيير الفلتر أثناء التحميل
+            if (reqId !== this._renderReqId) return;
             if (!biData || !biData.curr) return;
-
+            
+            if (!canUseCache) {
+                this._salesCacheByRange[rangeKey] = { data: biData, fetchedAt: Date.now() };
+            }
             this._latestStatsCache = biData;
 
             const summaryContainer = document.getElementById('sales-executive-summary');
             if (summaryContainer) {
-                summaryContainer.className = 'dash-circ-grid mb-20'; 
-                summaryContainer.innerHTML = DashboardTemplates.salesExecutiveSummary(biData.curr, biData.prev, this.state.timeRange);
+                summaryContainer.className = 'sales-super-capsules mb-20'; 
+                summaryContainer.innerHTML = DashboardTemplates.salesExecutiveSummary(biData.curr, biData.prev, rangeKey);
             }
 
             const catsTbody = document.getElementById('sales-detailed-cats');
@@ -200,12 +214,11 @@ const exactPrice = Number(o.priceBaseUsd ?? o.pricingSnapshot?.finalPriceUsd ?? 
                     catsTbody.innerHTML = DashboardTemplates.emptySalesTable(6);
                 } else {
                     catsTbody.innerHTML = sortedCats.map(c => {
-                        // 🚀 الحماية من القسمة على صفر
                         const marginRaw = c.revenue > 0 ? FinancialEngine.safeDiv(c.profit, c.revenue) : 0;
                         const margin = FinancialEngine.safeMul(marginRaw, 100);
                         return `
                             <tr>
-                                <td class="fw-bold text-truncate max-w-150" title="${Utils.escapeHTML(c.name)}">${Utils.escapeHTML(c.name)}</td>
+                                <td class="fw-bold max-w-150" title="${Utils.escapeHTML(c.name)}">${Utils.escapeHTML(c.name)}</td>
                                 <td class="num-en font-numeric" dir="ltr">${Utils.enNum(c.count)}</td>
                                 <td class="num-en font-numeric text-primary" dir="ltr">${RenderHelpers.formatMoney(c.revenue, 'USD')}</td>
                                 <td class="num-en font-numeric text-gold fw-bold" dir="ltr">${RenderHelpers.formatMoney(c.profit, 'USD')}</td>
@@ -224,12 +237,11 @@ const exactPrice = Number(o.priceBaseUsd ?? o.pricingSnapshot?.finalPriceUsd ?? 
                     tiersTbody.innerHTML = DashboardTemplates.emptySalesTable(5);
                 } else {
                     tiersTbody.innerHTML = sortedTiers.map(t => {
-                        // 🚀 الحماية من القسمة على صفر
                         const marginRaw = t.revenue > 0 ? FinancialEngine.safeDiv(t.profit, t.revenue) : 0;
                         const margin = FinancialEngine.safeMul(marginRaw, 100);
                         return `
                             <tr>
-                                <td class="fw-bold"><i class="fa-solid fa-user-tag text-muted me-2"></i> ${Utils.escapeHTML(t.name)}</td>
+                                <td class="fw-bold"><i class="fa-solid fa-user-tag text-muted me-1"></i> ${Utils.escapeHTML(t.name)}</td>
                                 <td class="num-en font-numeric" dir="ltr">${Utils.enNum(t.count)}</td>
                                 <td class="num-en font-numeric text-primary" dir="ltr">${RenderHelpers.formatMoney(t.revenue, 'USD')}</td>
                                 <td class="num-en font-numeric text-gold fw-bold" dir="ltr">${RenderHelpers.formatMoney(t.profit, 'USD')}</td>
@@ -250,36 +262,33 @@ const exactPrice = Number(o.priceBaseUsd ?? o.pricingSnapshot?.finalPriceUsd ?? 
             
             if (podiumContainer) {
                 if (sortedProds.length > 0) {
-                    // 🚀 [الإصلاح المعماري]: قراءة مسار الصورة img أو image لمنع اختفائها من المنصة
                     const getProdImg = (id) => { const p = AdminData.data.prodsMap?.[id]; return p ? (p.img || p.image || null) : null; };
 
                     const buildRankHtml = (prod, rankClass, num, badgeIcon) => {
-                        if (!prod) return `<div class="podium-item ${rankClass} opacity-50"><div class="podium-avatar-wrap"><div class="podium-rank-num font-numeric" dir="ltr">${num}</div></div><div class="podium-info"><span class="podium-name text-muted">---</span><span class="podium-val text-muted num-en font-numeric" dir="ltr">$0.00</span></div></div>`;
+                        if (!prod) return `<div class="podium-item ${rankClass} podium-ghost"><div class="podium-avatar-wrap"><div class="podium-rank-num font-numeric" dir="ltr">${num}</div></div><div class="podium-info"><span class="podium-name text-muted">---</span><span class="podium-val text-muted num-en font-numeric" dir="ltr">$0.00</span></div></div>`;
                         const img = getProdImg(prod.id);
                         const avatarContent = img ? `<img src="${Utils.escapeHTML(img)}" class="podium-img"><div class="podium-rank-num font-numeric" dir="ltr">${num}</div>` : `<div class="podium-rank-num font-numeric" dir="ltr">${num}</div>`;
 
                         const displayValue = prod.profit > 0 ? prod.profit : prod.revenue;
 
-                        return `<div class="podium-item ${rankClass}"><div class="podium-avatar-wrap">${avatarContent}<div class="rank-badge">${badgeIcon}</div></div><div class="podium-info"><span class="podium-name text-truncate" title="${Utils.escapeHTML(prod.name)}">${Utils.escapeHTML(prod.name)}</span><span class="podium-val text-gold num-en font-numeric" dir="ltr">${RenderHelpers.formatMoney(displayValue, 'USD', 2)}</span></div></div>`;
+                        return `<div class="podium-item ${rankClass}"><div class="podium-avatar-wrap">${avatarContent}<div class="rank-badge">${badgeIcon}</div></div><div class="podium-info"><span class="podium-name" title="${Utils.escapeHTML(prod.name)}">${Utils.escapeHTML(prod.name)}</span><span class="podium-val text-gold num-en font-numeric" dir="ltr">${RenderHelpers.formatMoney(displayValue, 'USD', 2)}</span></div></div>`;
                     };
 
                     podiumContainer.innerHTML = `${buildRankHtml(sortedProds[1], 'rank-2', '2', '<i class="fa-solid fa-medal"></i>')}${buildRankHtml(sortedProds[0], 'rank-1', '1', '<i class="fa-solid fa-crown text-gold"></i>')}${buildRankHtml(sortedProds[2], 'rank-3', '3', '<i class="fa-solid fa-award"></i>')}`;
-                    
-                    const existingBtnContainer = document.getElementById('top-customers-btn-wrap');
-                    if (existingBtnContainer) existingBtnContainer.remove();
-
-                    // 🚀 استخدام data-action للتوافق مع CSP بدلاً من السطر الداخلي onclick
-                    podiumContainer.insertAdjacentHTML('afterend', `
-                        <div id="top-customers-btn-wrap" class="text-center mt-20">
-                            <button class="btn btn-ghost text-warning interactive-scale" id="btn-load-top-customers" data-action="load-top-customers">
-                                <i class="fa-solid fa-list-ol me-1"></i> تقرير كبار العملاء (الكامل)
-                            </button>
-                        </div>
-                    `);
-
                 } else {
                     podiumContainer.innerHTML = DashboardTemplates.emptySalesPodium();
                 }
+
+                const existingBtnContainer = document.getElementById('top-customers-btn-wrap');
+                if (existingBtnContainer) existingBtnContainer.remove();
+
+                podiumContainer.insertAdjacentHTML('afterend', `
+                    <div id="top-customers-btn-wrap" class="text-center mt-20">
+                        <button class="btn btn-ghost text-warning interactive-scale" id="btn-load-top-customers" data-action="load-top-customers">
+                            <i class="fa-solid fa-list-ol me-1"></i> تقرير كبار العملاء (الكامل)
+                        </button>
+                    </div>
+                `);
             }
 
             const allProdsTbody = document.getElementById('sales-rest-prods');
@@ -288,12 +297,11 @@ const exactPrice = Number(o.priceBaseUsd ?? o.pricingSnapshot?.finalPriceUsd ?? 
                     allProdsTbody.innerHTML = DashboardTemplates.emptySalesTable(5);
                 } else {
                     allProdsTbody.innerHTML = sortedProds.map(p => {
-                        // 🚀 الحماية من القسمة على صفر
                         const marginRaw = p.revenue > 0 ? FinancialEngine.safeDiv(p.profit, p.revenue) : 0;
                         const margin = FinancialEngine.safeMul(marginRaw, 100);
                         return `
                             <tr>
-                                <td class="fs-12 fw-bold text-truncate max-w-150" title="${Utils.escapeHTML(p.name)}">${Utils.escapeHTML(p.name)}</td>
+                                <td class="fs-12 fw-bold max-w-150" title="${Utils.escapeHTML(p.name)}">${Utils.escapeHTML(p.name)}</td>
                                 <td class="num-en font-numeric" dir="ltr">${Utils.enNum(p.count)}</td>
                                 <td class="num-en font-numeric text-primary" dir="ltr">${RenderHelpers.formatMoney(p.revenue, 'USD')}</td>
                                 <td class="num-en font-numeric text-gold fw-bold" dir="ltr">${RenderHelpers.formatMoney(p.profit, 'USD')}</td>
@@ -303,32 +311,54 @@ const exactPrice = Number(o.priceBaseUsd ?? o.pricingSnapshot?.finalPriceUsd ?? 
                 }
             }
 
-            this.renderCharts(biData.curr.daily || {}, biData.curr.sources || {}, this.state.timeRange);
+            this.renderCharts(biData.curr.daily || {}, biData.curr.sources || {}, rangeKey); // استخدام rangeKey المجمّد
 
         } catch (error) {
+            if (reqId !== this._renderReqId) return; // حماية من أخطاء الطلبات الملغية
             console.error("🚨 خطأ في تحليل ورسم المبيعات السحابية:", error);
             UIService?.showToast?.("فشل استخراج تقارير المبيعات", "error");
         } finally {
-            this._isRendering = false;
-            if (window.AdminUI?.toggleLoader) window.AdminUI.toggleLoader(false);
+            if (reqId === this._renderReqId && window.AdminUI?.toggleLoader) {
+                window.AdminUI.toggleLoader(false);
+            }
         }
     },
 
     renderCharts: function(dailyAggregations = {}, sources = {}, range) {
         if (typeof window.ApexCharts === 'undefined') return;
 
-        let daysToLoop = 30;
-        if (range === 'today') daysToLoop = 2; 
-        else if (range === '7days') daysToLoop = 7;
-        else if (range === '90days') daysToLoop = 90;
-        else if (range === 'all') daysToLoop = 30; 
-
         const dates = [], revenues = [], profits = [];
-        const todayUTCStart = FinancialEngine.getStartOfUTCDay(Date.now());
+        const now = new Date();
+        const todayUTCStart = FinancialEngine.getStartOfUTCDay(now.getTime());
 
-        for (let i = daysToLoop - 1; i >= 0; i--) {
-            const d = new Date(todayUTCStart - (i * 86400000));
-            // 🚀 استخدام دوال الـ UTC لتطابق مفاتيح السيرفر بدقة
+        let loopStartMs = todayUTCStart - (29 * 86400000);
+        let daysToLoop = 30;
+
+        if (range === 'today') {
+            daysToLoop = 2;
+            loopStartMs = todayUTCStart - 86400000;
+        } else if (range === '7days') {
+            daysToLoop = 7;
+            loopStartMs = todayUTCStart - (6 * 86400000);
+        } else if (range === '90days') {
+            daysToLoop = 90;
+            loopStartMs = todayUTCStart - (89 * 86400000);
+        } else if (range === 'this_month') {
+            const firstOfThisMonthUTC = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1);
+            daysToLoop = Math.max(2, Math.round((todayUTCStart - firstOfThisMonthUTC) / 86400000) + 1);
+            loopStartMs = todayUTCStart - ((daysToLoop - 1) * 86400000);
+        } else if (range === 'last_month') {
+            const firstOfLastMonthUTC = Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1);
+            const lastOfLastMonthUTC = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 0);
+            daysToLoop = Math.max(1, Math.round((lastOfLastMonthUTC - firstOfLastMonthUTC) / 86400000) + 1);
+            loopStartMs = firstOfLastMonthUTC;
+        } else {
+            daysToLoop = 30;
+            loopStartMs = todayUTCStart - (29 * 86400000);
+        }
+
+        for (let i = 0; i < daysToLoop; i++) {
+            const d = new Date(loopStartMs + (i * 86400000));
             const dayKey = `${d.getUTCFullYear()}-${String(d.getUTCMonth()+1).padStart(2,'0')}-${String(d.getUTCDate()).padStart(2,'0')}`;
             dates.push(`${d.getUTCDate()} ${d.toLocaleString('ar-EG', { month: 'short', timeZone: 'UTC' })}`);
             
@@ -342,6 +372,12 @@ const exactPrice = Number(o.priceBaseUsd ?? o.pricingSnapshot?.finalPriceUsd ?? 
 
         const detailedChartEl = document.querySelector('#sales-detailed-chart');
         if (detailedChartEl && document.body.contains(detailedChartEl)) {
+            const periodNames = { 'all': 'كل الأوقات', 'today': 'اليوم', '7days': 'آخر 7 أيام', '30days': 'آخر 30 يوم', '90days': 'آخر 90 يوم', 'this_month': 'هذا الشهر', 'last_month': 'الشهر الماضي' };
+            const chartTitleEl = detailedChartEl.closest('.dash-chart-card')?.querySelector('.card-title');
+            if (chartTitleEl) {
+                chartTitleEl.innerHTML = `<i class="fa-solid fa-chart-area text-success me-1"></i> المبيعات والأرباح (${periodNames[range] || 'آخر 30 يوم'})`;
+            }
+
             const areaOptions = {
                 chart: { type: 'area', height: 320, toolbar: { show: false }, background: 'transparent', fontFamily: 'Cairo' },
                 theme: { mode: themeMode },
@@ -367,7 +403,6 @@ const exactPrice = Number(o.priceBaseUsd ?? o.pricingSnapshot?.finalPriceUsd ?? 
 
         const sourceChartEl = document.querySelector('#sales-source-chart');
         if (sourceChartEl && document.body.contains(sourceChartEl)) {
-            // 🚀 [الإصلاح المعماري 3]: قراءة مصادر الأرباح المباشرة من السيرفر مع الحماية من القيم السالبة
             const vaultVal = Math.max(0, Number(sources.vault || 0));
             const supplierVal = Math.max(0, Number(sources.supplier || 0));
             const manualVal = Math.max(0, Number(sources.manual || 0));
@@ -379,7 +414,7 @@ const exactPrice = Number(o.priceBaseUsd ?? o.pricingSnapshot?.finalPriceUsd ?? 
                     this._sourceChartInst = null;
                 }
                 sourceChartEl.innerHTML = `
-                    <div class="d-flex align-items-center justify-content-center h-100 min-h-100 w-100">
+                    <div class="flex-center min-h-100 w-100">
                         ${RenderHelpers.emptyState('fa-solid fa-chart-pie text-muted', 'لا توجد بيانات للمخطط', 'سيظهر الرسم البياني بمجرد تسجيل مبيعات جديدة.')}
                     </div>`;
                 return;
@@ -393,7 +428,7 @@ const exactPrice = Number(o.priceBaseUsd ?? o.pricingSnapshot?.finalPriceUsd ?? 
                 theme: { mode: themeMode },
                 plotOptions: { donut: { size: '75%' } },
                 dataLabels: { enabled: false },
-                tooltip: { y: { formatter: function(val) { return "$" + val.toFixed(2) } } },
+                tooltip: { y: { formatter: function(val) { return "$" + val.toFixed(2); } } },
                 legend: { position: 'bottom' }
             };
 
@@ -406,6 +441,7 @@ const exactPrice = Number(o.priceBaseUsd ?? o.pricingSnapshot?.finalPriceUsd ?? 
             this._sourceChartInst.render();
         }
     },
+
     exportSalesToExcel: async function() {
         const btn = document.querySelector('[data-action="export-excel"][data-type="sales"]');
         if (btn) {
@@ -455,12 +491,13 @@ const exactPrice = Number(o.priceBaseUsd ?? o.pricingSnapshot?.finalPriceUsd ?? 
             const fileName = `تقرير_المبيعات_${safeName}_${new Date().toISOString().split('T')[0]}.csv`;
             
             const objUrl = window.URL.createObjectURL(blob);
-link.setAttribute("href", objUrl);
-link.setAttribute("download", fileName);
-document.body.appendChild(link);
-link.click();
-document.body.removeChild(link);
-window.URL.revokeObjectURL(objUrl);
+            link.setAttribute("href", objUrl);
+            link.setAttribute("download", fileName);
+            link.className = 'hide-element';
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            window.URL.revokeObjectURL(objUrl);
 
             UIService.showToast(`تم تصدير تقرير المبيعات بنجاح`, "success");
         } catch (error) {

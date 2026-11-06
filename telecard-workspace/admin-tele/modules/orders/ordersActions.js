@@ -10,12 +10,7 @@ import { OrdersRender } from './ordersRender.js';
 export const OrdersActions = {
     'ignore-click': () => {},
     'open-order-drawer': (data) => AdminUI?.OrdersUI?.openOrderDrawer?.(data.id),
-    
-    // 🚀 [تصحيح السلك المقطوع]: زر إغلاق تفاصيل الطلب
-    'close-drawer': (data) => {
-        if (data.type === 'order') AdminUI?.OrdersUI?.closeOrderDrawer?.();
-    },
-    
+       
     'submit-order': (data) => OrdersController.submitOrderAction?.(data.type, data.id),
     'request-order-refund': (data) => OrdersController.requestOrderRefund?.(data.id),
     

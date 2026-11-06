@@ -1,12 +1,11 @@
 // ============================================================================
-// 🧠 متحكم الربط والموردين (modules/integrations/integrationsController.js) - V20.2 💎
+// 🧠 متحكم الربط والموردين (modules/integrations/integrationsController.js) - V20.5 💎
 // 🎯 الوظيفة: معالجة سحب المنتجات، المزامنة السحابية، فحص الرصيد، وحذف الموردين
-// 🚀 التحديثات المعمارية (V20.2 - Zero-Read Wipe & Selective Sync Patch): 
-// 1. Zero-Read Delete Wipe ⚡: حذف ارتباط منتجات المورد في الذاكرة بـ 0 قراءات سحابية بدلاً من قراءة الكتالوج كاملاً.
-// 2. Selective Sync Load 📉: قراءة وتحديث منتجات المورد الذي تمت مزامنته فقط من السحابة توفيراً لأكثر من 1,500 قراءة.
-// 3. Live Balance Checker 💰: فحص رصيد حسابك المباشر لدى المورد عبر السيرفر لحظياً.
-// 4. Cloud Delete Integration 🗑️: حذف المورد وفك ارتباط كافة منتجاته بأمان عبر adminDeleteSupplier.
-// 5. Cloud Catalog Explorer 🔍: استعراض منتجات المورد المتاحة حياً عبر السيرفر دون مغادرة لوحة الإدارة.
+// 🌟 التحديثات المعمارية:
+// 1. Instant Catalog Search 🔍: دمج محرك بحث فوري داخل نافذة كتالوج المورد وإزالة حاوية التمرير المزدوجة.
+// 2. Attention Badge Sync 🚨: تفعيل requiresAdminAttention على المنتجات المفكوك ارتباطها عند حذف المورد.
+// 3. Guaranteed Post-Sync Refresh 🔄: تحديث المنتجات المحلية المربوطة بالمورد فور انتهاء المزامنة اليدوية.
+// 4. Scoped Button Disabling 🛡️: حصر تعطيل الأزرار أثناء المزامنة داخل #suppliers-grid فقط.
 // ============================================================================
 
 import { AdminData } from '../../adminData.js';
@@ -15,7 +14,6 @@ import { EventBus, Utils } from '../../adminUtils.js';
 import { FirebaseAdapter } from '../../core/firebaseAdapter.js';
 import { RenderHelpers } from '../../core/renderHelpers.js';
 import { IntegrationsUI } from './integrationsUI.js';
-// 🚀 استيراد مكتبات الاستعلام لتوفير القراءات أثناء تحديث منتجات مورد معين فقط
 import { collection, query, where, getDocs } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 
 export const IntegrationsController = {
@@ -38,12 +36,19 @@ export const IntegrationsController = {
         const autoSync = Utils.getCheck('supp-auto-sync');
         const syncIntervalMinutes = Math.max(10, parseInt(Utils.getVal('supp-sync-interval'), 10) || 120);
         
-        if (!name || !baseUrl) {
-            EventBus.emit('req-show-toast', { message: 'يرجى ملء البيانات الأساسية للمورد (الاسم والرابط)', type: 'error' });
+        if (!name) {
+            document.getElementById('supp-name')?.focus();
+            EventBus.emit('req-show-toast', { message: '⚠️ حقل مطلوب: يرجى إدخال اسم المورد أولاً', type: 'warning' });
+            return;
+        }
+        if (!baseUrl) {
+            document.getElementById('supp-url')?.focus();
+            EventBus.emit('req-show-toast', { message: '⚠️ حقل مطلوب: يرجى إدخال رابط الـ API (Base URL) للمورد', type: 'warning' });
             return;
         }
         if (!id && !token) {
-            EventBus.emit('req-show-toast', { message: 'يرجى إدخال مفتاح الربط السري (API Key / Token) للمورد الجديد', type: 'error' });
+            document.getElementById('supp-token')?.focus();
+            EventBus.emit('req-show-toast', { message: '⚠️ حقل مطلوب: يرجى إدخال مفتاح الربط السري (API Key / Token) للمورد الجديد', type: 'warning' });
             return;
         }
         
@@ -110,6 +115,7 @@ export const IntegrationsController = {
             if (AdminUI?.toggleLoader) AdminUI.toggleLoader(false);
         }
     },
+
     // =========================================================
     // 🗑️ 2. حذف المورد وفك ارتباط المنتجات سحابياً (Zero-Read Local Wipe)
     // =========================================================
@@ -133,14 +139,18 @@ export const IntegrationsController = {
                 AdminData.data.suppliers = (AdminData.data.suppliers || []).filter(s => String(s.id) !== strSuppId);
                 if (AdminData.data.suppliersMap) delete AdminData.data.suppliersMap[strSuppId];
 
-                // ⚡ الإصلاح المعماري: فك ارتباط المنتجات التابعة للمورد في الذاكرة المحلية بـ 0 قراءات سحابية بدلاً من إعادة جلب 1500 منتج!
                 if (Array.isArray(AdminData.data.prods)) {
                     AdminData.data.prods.forEach(p => {
-                        if (p && String(p.supplierId) === strSuppId) {
+                        if (!p) return;
+                        const isParentLinked = String(p.supplierId || '') === strSuppId;
+                        const isOptionLinked = Array.isArray(p.options) && p.options.some(opt => opt && String(opt.supplierId || '') === strSuppId);
+
+                        if (isParentLinked || isOptionLinked) {
                             p.supplierId = null;
                             p.externalId = null;
                             p.isExternal = false;
                             p.isAvailable = false;
+                            p.requiresAdminAttention = true;
                             p.syncNote = 'تنبيه أمني: تم حذف المورد المرتبط بهذا المنتج.';
                             if (Array.isArray(p.options)) {
                                 p.options = p.options.map(opt => opt ? { ...opt, supplierId: null, externalId: null, isAvailable: false } : opt);
@@ -186,12 +196,11 @@ export const IntegrationsController = {
                 const warnLow = res.isLowBalance ? '\n\n⚠️ تنبيه: رصيدك منخفض جداً، يرجى شحن الحساب لتجنب فشل الطلبات!' : '';
 
                 await AdminUI.showAlert(
-                    `<div class="text-center p-15">
-                        <i class="fa-solid fa-wallet fa-3x text-success mb-10"></i>
-                        <h4 class="fw-bold mb-5">رصيدك المتاح لدى (${Utils.escapeHTML(res.supplierName)}):</h4>
-                        <div class="fs-22 text-gold fw-bold num-en font-numeric my-10" dir="ltr">${balText}${localBalText}</div>
+                    `<div class="ud-balance-card-pro mt-10">
+                        <div class="lbl"><i class="fa-solid fa-wallet text-success me-1"></i> رصيدك المتاح لدى (${Utils.escapeHTML(res.supplierName)})</div>
+                        <div class="val num-en font-numeric" dir="ltr">${balText}${localBalText}</div>
                         ${res.accountEmail ? `<div class="fs-12 text-muted">حساب: ${Utils.escapeHTML(res.accountEmail)}</div>` : ''}
-                        ${warnLow ? `<div class="alert alert-danger mt-10 p-10 fs-12">${warnLow}</div>` : ''}
+                        ${warnLow ? `<div class="alert-info alert-danger mt-10 p-10 fs-12">${warnLow}</div>` : ''}
                     </div>`,
                     'رصيد حساب المورد'
                 );
@@ -207,50 +216,53 @@ export const IntegrationsController = {
     },
 
     // =========================================================
-    // 🔍 4. استعراض كتالوج منتجات المورد وأسعارها حياً
+    // 🔍 4. استعراض كتالوج منتجات المورد وأسعارها حياً (مع بحث فوري)
     // =========================================================
     fetchSupplierCatalog: async function(id) {
-    if (!id || this._actionLocks.has(`cat-supp-${id}`)) return;
-    this._actionLocks.add(`cat-supp-${id}`);
-    
-    if (AdminUI?.toggleLoader) AdminUI.toggleLoader(true, 'جاري سحب كتالوج منتجات المورد وأسعارها حياً...');
-    
-    try {
-        const res = await FirebaseAdapter.callFunction('adminFetchSupplierCatalog', { supplierId: String(id) });
+        if (!id || this._actionLocks.has(`cat-supp-${id}`)) return;
+        this._actionLocks.add(`cat-supp-${id}`);
         
-        if (res && res.success && Array.isArray(res.items)) {
-            const rowsHtml = res.items.map(item => {
-                const rawCostUsd = Number(item.costUsd || 0);
-                const costDecimals = (rawCostUsd > 0 && rawCostUsd < 0.001) ? 6 : ((rawCostUsd > 0 && rawCostUsd < 0.05) ? 4 : 3);
-                return `
-                    <div class="copy-row interactive-scale mb-5 p-10" data-action="copy-text" data-copy-text="${Utils.escapeHTML(item.externalId)}" title="اضغط لنسخ كود المنتج (ID)">
-                        <div class="d-flex justify-content-between align-items-center w-100 gap-2">
-                            <div class="text-truncate flex-1">
-                                <span class="fw-bold fs-12">${Utils.escapeHTML(item.name)}</span>
+        if (AdminUI?.toggleLoader) AdminUI.toggleLoader(true, 'جاري سحب كتالوج منتجات المورد وأسعارها حياً...');
+        
+        try {
+            const res = await FirebaseAdapter.callFunction('adminFetchSupplierCatalog', { supplierId: String(id) });
+            
+            if (res && res.success && Array.isArray(res.items)) {
+                const rowsHtml = res.items.map(item => {
+                    const rawCostUsd = Number(item.costUsd || 0);
+                    const costDecimals = (rawCostUsd > 0 && rawCostUsd < 0.001) ? 6 : ((rawCostUsd > 0 && rawCostUsd < 0.05) ? 4 : 3);
+                    return `
+                        <div class="copy-row supp-cat-item-row interactive-scale mb-5 p-10" data-action="copy-text" data-copy-text="${Utils.escapeHTML(item.externalId)}" title="اضغط لنسخ كود المنتج (ID)">
+                            <div class="cr-content">
+                                <span class="fw-bold fs-12 text-main">${Utils.escapeHTML(item.name)}</span>
                                 <div class="fs-11 text-muted num-en font-numeric" dir="ltr">ID: <b class="text-info">#${Utils.escapeHTML(item.externalId)}</b> | التكلفة: <b class="text-gold">$${rawCostUsd.toFixed(costDecimals)}</b></div>
                             </div>
-                            <span class="badge ${item.stock > 0 ? 'bg-success' : 'bg-danger'} num-en font-numeric" dir="ltr">${item.stock > 0 ? 'متوفر' : 'نافد'}</span>
-                        </div>
-                    </div>`;
-            }).join('');
-            
-            await AdminUI.showAlert(
-                `<div class="mb-10 fs-12 text-muted">إجمالي منتجات المورد (${Utils.escapeHTML(res.supplierName)}): <b>${res.totalItems}</b> منتج. اضغط على أي منتج لنسخ الـ ID الخاص به لربطه:</div>
-                     <div class="custom-scrollbar" style="max-height: 400px; overflow-y: auto;">
+                            <span class="v-stat-chip ${item.stock > 0 ? 'chip-success' : 'chip-danger'} font-numeric" dir="ltr">${item.stock > 0 ? 'متوفر' : 'نافد'}</span>
+                        </div>`;
+                }).join('');
+                
+                await AdminUI.showAlert(
+                    `<div class="mb-10 fs-12 text-muted">إجمالي منتجات المورد (${Utils.escapeHTML(res.supplierName)}): <b>${Utils.enNum(res.totalItems || res.items.length)}</b> منتج. اضغط على أي منتج لنسخ الـ ID الخاص به لربطه:</div>
+                     <div class="filter-input-group w-100 mb-15">
+                        <i class="fa-solid fa-magnifying-glass"></i>
+                        <input type="text" id="supp-catalog-search-input" class="form-input" placeholder="ابحث باسم المنتج أو رقم الـ ID..." data-oninput="filter-supplier-catalog">
+                     </div>
+                     <div id="supp-catalog-items-list">
                         ${rowsHtml || '<div class="text-center text-muted p-15">لا توجد منتجات</div>'}
                      </div>`,
-                `كتالوج المورد: ${res.supplierName}`
-            );
-        } else {
-            throw new Error(res?.message || 'تعذر جلب كتالوج المورد.');
+                    `كتالوج المورد: ${res.supplierName}`
+                );
+            } else {
+                throw new Error(res?.message || 'تعذر جلب كتالوج المورد.');
+            }
+        } catch (error) {
+            EventBus.emit('req-show-toast', { message: `فشل جلب الكتالوج: ${error.message}`, type: 'error' });
+        } finally {
+            this._actionLocks.delete(`cat-supp-${id}`);
+            if (AdminUI?.toggleLoader) AdminUI.toggleLoader(false);
         }
-    } catch (error) {
-        EventBus.emit('req-show-toast', { message: `فشل جلب الكتالوج: ${error.message}`, type: 'error' });
-    } finally {
-        this._actionLocks.delete(`cat-supp-${id}`);
-        if (AdminUI?.toggleLoader) AdminUI.toggleLoader(false);
-    }
-},
+    },
+
     // =========================================================
     // ⚡ 5. تفعيل/تعطيل المورد
     // =========================================================
@@ -269,6 +281,7 @@ export const IntegrationsController = {
             });
 
             supp.isActive = isChecked;
+            EventBus.emit('req-render-integrations');
             
             if (AdminData.addLog) {
                 AdminData.addLog('TOGGLE_SUPPLIER', `تم ${isChecked ? 'تفعيل' : 'إيقاف'} المورد: ${supp.name}`);
@@ -304,12 +317,12 @@ export const IntegrationsController = {
 
         this._actionLocks.add(`sync-${id}`);
         
-        const cardElementsToDisable = document.querySelectorAll(`[data-id="${id}"]`);
+        const gridEl = document.getElementById('suppliers-grid');
+        const cardElementsToDisable = gridEl ? gridEl.querySelectorAll(`[data-id="${CSS.escape(String(id))}"]`) : [];
         cardElementsToDisable.forEach(el => {
             if (el.tagName === 'BUTTON' || el.tagName === 'INPUT') {
                 el.disabled = true;
-                el.classList.add('opacity-50');
-                el.style.pointerEvents = 'none';
+                el.classList.add('btn-disabled');
             }
         });
 
@@ -320,12 +333,14 @@ export const IntegrationsController = {
 
             if (result && result.success) {
                 supp.lastSync = Date.now(); 
-                supp.importedCount = result.linkedCount || result.importedCount || 0;
+                supp.importedCount = result.linkedCount ?? result.importedCount ?? supp.importedCount ?? 0;
                 supp.linkedProductsCount = supp.importedCount;
-                supp.lastUpdatedProductsCount = result.updatedProductsCount || 0;
+                supp.lastUpdatedProductsCount = result.updatedProductsCount ?? result.updatedCount ?? 0;
                 
-                // ⚡ الإصلاح المعماري: جلب منتجات هذا المورد المحددة فقط وتحديثها في الذاكرة بدلاً من إعادة قراءة 1500 منتج توفيراً للقراءات!
-                if (Number(result.updatedProductsCount || 0) > 0) {
+                const hasLinkedProdsInStore = Array.isArray(AdminData.data.prods) &&
+                    AdminData.data.prods.some(p => p && String(p.supplierId || '') === String(id));
+
+                if (Number(supp.lastUpdatedProductsCount || 0) > 0 || Number(supp.importedCount || 0) > 0 || hasLinkedProdsInStore) {
                     try {
                         const q = query(collection(FirebaseAdapter.db, 'telecard_prods'), where('supplierId', '==', String(id)));
                         const snap = await getDocs(q);
@@ -346,7 +361,7 @@ export const IntegrationsController = {
                             AdminData.data.prods = AdminData.data.prods.map(p => updatedMap.get(String(p.id)) || p);
                             AdminData._buildSingleMap?.('prods');
                             AdminData._updateSnapshot?.('prods');
-                            EventBus.emit('req-render-prods'); // تحديث واجهة الكتالوج فوراً
+                            EventBus.emit('req-render-prods');
                         }
                     } catch (syncReadErr) {
                         console.warn("⚠️ تعذر تحديث منتجات المورد محلياً بعد المزامنة:", syncReadErr);
@@ -376,8 +391,7 @@ export const IntegrationsController = {
             cardElementsToDisable.forEach(el => {
                 if (el.tagName === 'BUTTON' || el.tagName === 'INPUT') {
                     el.disabled = false;
-                    el.classList.remove('opacity-50');
-                    el.style.pointerEvents = 'auto';
+                    el.classList.remove('btn-disabled');
                 }
             });
         }

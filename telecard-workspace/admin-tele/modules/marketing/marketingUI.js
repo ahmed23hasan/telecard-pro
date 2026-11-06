@@ -1,12 +1,11 @@
 // ============================================================================
-// 📢 وحدة التسويق والعروض (modules/marketing/marketingUI.js) - Cloud-Native V20.0 💎
-// 🚀 التحديثات المعمارية (V20.0 - Alerts Isolation & Pure MVC Patch):
-// 1. Smart Tree Fix 🌳: توجيه نداء تعبئة الشجرة لمحرك (MarketingRender) بدلاً من (AdminRender).
-// 2. Alerts Isolation 🔔: استعادة تفاعلات نافذة الإشعارات من النواة المركزية لضمان العزل التام للوحدة.
-// 3. MVC Correction 🛡️: نقل دوال الفتح (openOffer, openCoupon, openAlert) من المتحكم إلى هنا.
-// 4. Lazy DOM Injection 📦: خلق نوافذ التسويق من العدم لتخفيف العبء عن المتصفح.
-// 5. Smart Garbage Collector 🧹: وضع كلاس (dynamic-auto-destroy) ليتم التدمير تلقائياً بعد الإغلاق.
-// 6. Data-Driven Story Tree 📊: قراءة أسماء منتجات القصة من الذاكرة (Map) بدلاً من الـ HTML لضمان الاستقرار.
+// 📢 وحدة التسويق والعروض (modules/marketing/marketingUI.js) - Cloud-Native V20.5 💎
+// 🎯 الوظيفة: إدارة نوافذ العروض والكوبونات والمحرك البصري ومعاينة الشريط الإخباري
+// 🌟 التحديثات المعمارية:
+// 1. Collision Modal Isolation 🛡️: منع هدم نافذة العرض (#m-offer) عند فتح نافذة تضارب التخفيضات الفرعية.
+// 2. Tree Initialization Order 🌲: بناء شجرة المنتجات قبل setupOfferModal لضمان جاهزية شجرة الستوري فور فتح النافذة.
+// 3. Live Ticker Animation Sync 📜: تحديث نص وحركة الشريط الإخباري (#preview-ticker) لحظياً وعند فتح القسم.
+// 4. Visual Engine Harmony 🎨: تكامل تام مع الكلاسات المنطقية وألوان المعاينة المعتمدة في admin.css.
 // ============================================================================
 
 import { AdminData } from '../../adminData.js';
@@ -19,15 +18,50 @@ import { MarketingRender } from './marketingRender.js';
 export const MarketingUI = {
 
     visualConfig: {
-        storyEnabled: false, storyShape: 'shape-circle', storyProducts: [], 
-        grid: { badgeText: '', badgeStyle: 'none', badgeColor: 'theme-ruby', badgePos: 'pos-tr', timerStyle: 'none', timerPos: 'pos-bc' }
+        storyEnabled: false, 
+        storyShape: 'shape-circle', 
+        storyProducts: [], 
+        grid: { 
+            badgeText: '', 
+            badgeStyle: 'none', 
+            badgeColor: 'theme-ruby', 
+            badgePos: 'pos-tr', 
+            timerStyle: 'none', 
+            timerPos: 'pos-bc' 
+        }
+    },
+
+    _getBadgeColorClass: function(themeColor) {
+        return String(themeColor || 'theme-ruby')
+            .replace('theme-ruby', 'badge-red')
+            .replace('theme-sapphire', 'badge-blue')
+            .replace('theme-emerald', 'badge-green')
+            .replace('theme-gold', 'badge-gold')
+            .replace('theme-sunset', 'badge-red')
+            .replace('theme-ocean', 'badge-blue')
+            .replace('theme-amethyst', 'badge-purple')
+            .replace('theme-cyber', 'badge-purple')
+            .replace('theme-carbon', 'badge-black')
+            .replace('theme-obsidian', 'badge-black');
+    },
+
+    _getLogicalPosClass: function(posKey) {
+        const posMap = {
+            'pos-tr': 'top-start',
+            'pos-tc': 'top-center',
+            'pos-tl': 'top-end',
+            'pos-br': 'bottom-start',
+            'pos-bc': 'bottom-center',
+            'pos-bl': 'bottom-end'
+        };
+        return posMap[posKey] || 'top-start';
     },
 
     // =========================================================
     // 🎁 1. النوافذ الديناميكية (Dynamic Modals)
     // =========================================================
     openOfferModal: function(id = null) {
-        let strId = id ? String(id) : null;
+        const strId = id ? String(id) : null;
         EventBus.emit('req-update-state', { tempEditId: strId });
         
         const offer = strId ? (AdminData.data.offersMap?.[strId] || (AdminData.data.offers || []).find(o => String(o.id) === strId)) : null;
@@ -41,18 +75,19 @@ export const MarketingUI = {
         }
 
         modal.innerHTML = MarketingTemplates.offerEditModal();
-        this.setupOfferModal(offer);
 
         if (MarketingRender?.populateSmartTreeTargets) {
             MarketingRender.populateSmartTreeTargets('offer-target', offer ? (offer.targetTiers || []) : [], offer ? (offer.targetProds || []) : []);
         }
 
+        this.setupOfferModal(offer);
+
         void modal.offsetWidth; 
-        requestAnimationFrame(() => modal.classList.add('active'));
+        EventBus.emit('req-open-modal', 'offer');
     },
 
     openCouponModal: function(id = null) {
-        let strId = id ? String(id) : null;
+        const strId = id ? String(id) : null;
         EventBus.emit('req-update-state', { tempEditId: strId });
         const isEdit = !!strId;
         
@@ -67,14 +102,15 @@ export const MarketingUI = {
         }
 
         modal.innerHTML = MarketingTemplates.couponEditModal();
-        this.setupCouponModal(coupon, isEdit);
 
         if (MarketingRender?.populateSmartTreeTargets) {
             MarketingRender.populateSmartTreeTargets('coupon-target', coupon ? (coupon.targetTiers || []) : [], coupon ? (coupon.targetProds || []) : []);
         }
 
+        this.setupCouponModal(coupon, isEdit);
+
         void modal.offsetWidth; 
-        requestAnimationFrame(() => modal.classList.add('active'));
+        EventBus.emit('req-open-modal', 'coupon');
     },
 
     openAlertModal: function() {
@@ -90,7 +126,7 @@ export const MarketingUI = {
         this.setupAlertModal(AdminData.data.tiers || []);
 
         void modal.offsetWidth; 
-        requestAnimationFrame(() => modal.classList.add('active'));
+        EventBus.emit('req-open-modal', 'alert');
     },
 
     openBannerModal: function() {
@@ -105,7 +141,7 @@ export const MarketingUI = {
         modal.innerHTML = MarketingTemplates.bannerEditModal();
 
         void modal.offsetWidth; 
-        requestAnimationFrame(() => modal.classList.add('active'));
+        EventBus.emit('req-open-modal', 'banner');
     },
 
     showBatchCollisionResolverUI: function(collisions, resolveCallback) {
@@ -130,9 +166,9 @@ export const MarketingUI = {
         const cancelBtn = overlay.querySelector('#col-btn-cancel');
         const confirmBtn = overlay.querySelector('#col-btn-confirm');
 
-        if(closeBtn) closeBtn.onclick = () => closeIt(null);
-        if(cancelBtn) cancelBtn.onclick = () => closeIt(null);
-        if(confirmBtn) confirmBtn.onclick = () => {
+        if (closeBtn) closeBtn.onclick = () => closeIt(null);
+        if (cancelBtn) cancelBtn.onclick = () => closeIt(null);
+        if (confirmBtn) confirmBtn.onclick = () => {
             const ids = Array.from(overlay.querySelectorAll('.col-chk-item:checked')).map(cb => cb.value);
             closeIt(ids);
         };
@@ -157,13 +193,20 @@ export const MarketingUI = {
         const dHidden = document.getElementById('offer-expiry'); 
         if (offer && offer.expiryDate) { 
             if (dHidden) dHidden.value = offer.expiryDate; 
-            if (dText) { dText.innerText = RenderHelpers.formatSafeDate(offer.expiryDate); dText.classList.remove('placeholder-text'); } 
+            if (dText) { 
+                dText.innerText = RenderHelpers.formatSafeDate(offer.expiryDate); 
+                dText.classList.remove('placeholder-text'); 
+                dText.closest('.custom-field')?.classList.add('active'); 
+            } 
         } else { 
             if (dHidden) dHidden.value = ''; 
-            if (dText) { dText.innerText = 'DD/MM/YYYY HH:MM'; dText.classList.add('placeholder-text'); } 
+            if (dText) { 
+                dText.innerText = 'DD/MM/YYYY HH:MM'; 
+                dText.classList.add('placeholder-text'); 
+                dText.closest('.custom-field')?.classList.remove('active'); 
+            } 
         }
         this.toggleOfferFields();
-
         this.resetVisualBuilder(offer ? offer.visualConfig : null);
     },
 
@@ -171,7 +214,7 @@ export const MarketingUI = {
         const safeSetVal = (elId, val) => { const el = document.getElementById(elId); if (el) el.value = val; };
         const safeSetCheck = (elId, checked) => { const el = document.getElementById(elId); if (el) el.checked = checked; };
         const titleEl = document.getElementById('coupon-modal-title'); 
-        if (titleEl) titleEl.innerHTML = isEdit ? '<i class="fa-solid fa-pen"></i> تعديل الكوبون' : '<i class="fa-solid fa-ticket"></i> إضافة كوبون جديد';
+        if (titleEl) titleEl.innerHTML = isEdit ? '<i class="fa-solid fa-pen me-1"></i> تعديل الكوبون' : '<i class="fa-solid fa-ticket me-1"></i> إضافة كوبون جديد';
         
         if (isEdit && coupon) {
             safeSetVal('coupon-code', coupon.code || ''); 
@@ -184,9 +227,21 @@ export const MarketingUI = {
             safeSetVal('coupon-max-per-user', coupon.maxPerUser || 0); 
             safeSetVal('coupon-allowed-users', (coupon.allowedUsers || []).join(', '));
             
-            const tempDate = coupon.expiryDate || null; const dText = document.getElementById('date-expiry-coupon'); const dHidden = document.getElementById('coupon-expiry');
+            const tempDate = coupon.expiryDate || null; 
+            const dText = document.getElementById('date-expiry-coupon'); 
+            const dHidden = document.getElementById('coupon-expiry');
             if (dHidden) dHidden.value = tempDate || '';
-            if (dText) { if (tempDate) { dText.innerText = RenderHelpers.formatSafeDate(tempDate); dText.classList.remove('placeholder-text'); } else { dText.innerText = 'DD/MM/YYYY HH:MM'; dText.classList.add('placeholder-text'); } }
+            if (dText) { 
+                if (tempDate) { 
+                    dText.innerText = RenderHelpers.formatSafeDate(tempDate); 
+                    dText.classList.remove('placeholder-text'); 
+                    dText.closest('.custom-field')?.classList.add('active'); 
+                } else { 
+                    dText.innerText = 'DD/MM/YYYY HH:MM'; 
+                    dText.classList.add('placeholder-text'); 
+                    dText.closest('.custom-field')?.classList.remove('active'); 
+                } 
+            }
         } else {
             safeSetVal('coupon-code', ''); 
             safeSetVal('coupon-type', 'percentage'); 
@@ -198,37 +253,61 @@ export const MarketingUI = {
             safeSetVal('coupon-max-per-user', ''); 
             safeSetVal('coupon-allowed-users', ''); 
             
-            const dText = document.getElementById('date-expiry-coupon'); const dHidden = document.getElementById('coupon-expiry');
-            if (dHidden) dHidden.value = ''; if (dText) { dText.innerText = 'DD/MM/YYYY HH:MM'; dText.classList.add('placeholder-text'); }
+            const dText = document.getElementById('date-expiry-coupon'); 
+            const dHidden = document.getElementById('coupon-expiry');
+            if (dHidden) dHidden.value = ''; 
+            if (dText) { 
+                dText.innerText = 'DD/MM/YYYY HH:MM'; 
+                dText.classList.add('placeholder-text'); 
+                dText.closest('.custom-field')?.classList.remove('active'); 
+            }
         }
     },
 
     setupAlertModal: function(tiersList) {
         const safeSetVal = (id, val) => { const el = document.getElementById(id); if (el) el.value = val; };
-        const safeSetText = (id, txt) => { const el = document.getElementById(id); if (el) el.innerText = txt; };
 
         safeSetVal('alert-title', ''); 
         safeSetVal('alert-body', ''); 
         safeSetVal('alert-expiry', ''); 
-        safeSetText('date-expiry-alert', 'DD/MM/YYYY HH:MM');
         
-        const alertTypeEl = document.getElementById('alert-type'); if (alertTypeEl && alertTypeEl.options.length > 0) alertTypeEl.selectedIndex = 0; 
-        const targetTypeEl = document.getElementById('alert-target-type'); if (targetTypeEl && targetTypeEl.options.length > 0) targetTypeEl.selectedIndex = 0; 
+        const alertDText = document.getElementById('date-expiry-alert');
+        if (alertDText) {
+            alertDText.innerText = 'DD/MM/YYYY HH:MM';
+            alertDText.classList.add('placeholder-text');
+            alertDText.closest('.custom-field')?.classList.remove('active');
+        }
+        
+        const alertTypeEl = document.getElementById('alert-type'); 
+        if (alertTypeEl && alertTypeEl.options.length > 0) alertTypeEl.selectedIndex = 0; 
+        const targetTypeEl = document.getElementById('alert-target-type'); 
+        if (targetTypeEl && targetTypeEl.options.length > 0) targetTypeEl.selectedIndex = 0; 
         
         safeSetVal('alert-max-views', '3');
         safeSetVal('alert-action-link', '');
         safeSetVal('alert-coupon-code', '');
         
         const tierSelect = document.getElementById('alert-target-tier');
-        if (tierSelect) { tierSelect.innerHTML = tiersList.map(t => `<option value="${t.id}">${Utils.escapeHTML(t.name)}</option>`).join(''); }
+        if (tierSelect) { 
+            tierSelect.innerHTML = tiersList.map(t => `<option value="${t.id}">${Utils.escapeHTML(t.name)}</option>`).join(''); 
+        }
         
         this.toggleAlertTargetFields(); 
         this.toggleAlertTypeFields();
     },
 
     // =========================================================
-    // 🔔 3. تفاعلات نافذة الإشعارات (Alerts UI Toggles)
+    // 🔔 3. تفاعلات نافذة الإشعارات والشريط الإخباري
     // =========================================================
+    updateTickerPreviewUI: function(customText = undefined) {
+        const preview = document.getElementById('preview-ticker');
+        if (!preview) return;
+        const rawText = customText !== undefined ? customText : document.getElementById('promo-text')?.value;
+        const speed = document.getElementById('promo-speed')?.value || 'vertical-normal';
+        preview.innerText = (rawText && String(rawText).trim() !== '') ? String(rawText).trim() : 'معاينة النص...';
+        preview.className = `tp-text anim-${speed}`;
+    },
+
     toggleAlertTypeFields: function() {
         const type = document.getElementById('alert-type')?.value;
         const advFields = document.getElementById('popup-advanced-fields');
@@ -256,7 +335,7 @@ export const MarketingUI = {
     // =========================================================
     switchPromoTab: function(tab, btnEl) {
         document.querySelectorAll('#tabs-promotions .main-tab-btn').forEach(b => b.classList.remove('active'));
-        if(btnEl) btnEl.classList.add('active');
+        if (btnEl) btnEl.classList.add('active');
 
         const couponsGrid = document.getElementById('coupons-grid');
         const offersGrid = document.getElementById('offers-grid');
@@ -266,19 +345,19 @@ export const MarketingUI = {
         const pageTitle = document.getElementById('promo-page-title'); 
 
         if (tab === 'coupons') {
-            if(couponsGrid) couponsGrid.classList.remove('hide-element');
-            if(offersGrid) offersGrid.classList.add('hide-element');
-            if(btnAddCoupon) btnAddCoupon.classList.remove('hide-element');
-            if(btnAddOffer) btnAddOffer.classList.add('hide-element');
-            if(infoAlertText) infoAlertText.innerText = "الكوبونات تتيح لك تقديم خصم يتم تطبيقه عند الدفع (في السلة) من قبل العميل.";
-            if(pageTitle) pageTitle.innerHTML = '<i class="fa-solid fa-tags text-warning"></i> إدارة الكوبونات';
+            if (couponsGrid) couponsGrid.classList.remove('hide-element');
+            if (offersGrid) offersGrid.classList.add('hide-element');
+            if (btnAddCoupon) btnAddCoupon.classList.remove('hide-element');
+            if (btnAddOffer) btnAddOffer.classList.add('hide-element');
+            if (infoAlertText) infoAlertText.innerText = "الكوبونات تتيح لك تقديم خصم يتم تطبيقه عند الدفع (في السلة) من قبل العميل.";
+            if (pageTitle) pageTitle.innerHTML = '<i class="fa-solid fa-tags text-warning me-1"></i> إدارة الكوبونات';
         } else if (tab === 'offers') {
-            if(couponsGrid) couponsGrid.classList.add('hide-element');
-            if(offersGrid) offersGrid.classList.remove('hide-element');
-            if(btnAddCoupon) btnAddCoupon.classList.add('hide-element');
-            if(btnAddOffer) btnAddOffer.classList.remove('hide-element');
-            if(infoAlertText) infoAlertText.innerText = "العروض المركزية تغير أسعار المنتجات مباشرة في المتجر وتظهر الشارات والسعر المشطوب للعميل فوراً.";
-            if(pageTitle) pageTitle.innerHTML = '<i class="fa-solid fa-bolt text-warning"></i> إدارة حملات التخفيض ';
+            if (couponsGrid) couponsGrid.classList.add('hide-element');
+            if (offersGrid) offersGrid.classList.remove('hide-element');
+            if (btnAddCoupon) btnAddCoupon.classList.add('hide-element');
+            if (btnAddOffer) btnAddOffer.classList.remove('hide-element');
+            if (infoAlertText) infoAlertText.innerText = "العروض المركزية تغير أسعار المنتجات مباشرة في المتجر وتظهر الشارات والسعر المشطوب للعميل فوراً.";
+            if (pageTitle) pageTitle.innerHTML = '<i class="fa-solid fa-bolt text-warning me-1"></i> إدارة حملات التخفيض';
             EventBus.emit('req-render-offers');
         }
     },
@@ -292,7 +371,8 @@ export const MarketingUI = {
         else {
             valueGroup.classList.remove('hide-element');
             if (type === 'real' || type === 'fake') valueLabel.innerText = "نسبة الخصم المئوية (%)";
-else if (type === 'fixed') valueLabel.innerText = "قيمة مبلغ الخصم الثابت ($)";        }
+            else if (type === 'fixed') valueLabel.innerText = "قيمة مبلغ الخصم الثابت ($)";
+        }
     },
 
     switchBuilderTab: function(tabId) {
@@ -301,18 +381,25 @@ else if (type === 'fixed') valueLabel.innerText = "قيمة مبلغ الخصم 
         const targetBtn = document.querySelector(`.b-tab-btn[data-tab="${tabId}"]`);
         if (targetBtn) targetBtn.classList.add('active');
         const targetPane = document.getElementById(`b-pane-${tabId}`);
-        if (targetPane) { targetPane.classList.add('active'); if (tabId === 'story') this.renderStoryProductsTree(); }
+        if (targetPane) { 
+            targetPane.classList.add('active'); 
+            if (tabId === 'story') {
+                this.renderStoryProductsTree();
+                if (this.visualConfig.storyEnabled) this.renderStoryPreview();
+            }
+        }
     },
 
     toggleStoryBuilder: function() {
         const isChecked = document.getElementById('offer-in-story')?.checked;
         const container = document.getElementById('story-builder-container');
-        if(!container) return;
+        if (!container) return;
         this.visualConfig.storyEnabled = isChecked;
         if (isChecked) {
             container.classList.remove('hide-element');
             document.getElementById('story-prods-container')?.classList.remove('hide-element');
-            this.renderStoryProductsTree(); this.renderStoryPreview();
+            this.renderStoryProductsTree(); 
+            this.renderStoryPreview();
         } else {
             container.classList.add('hide-element');
             document.getElementById('story-prods-container')?.classList.add('hide-element');
@@ -324,35 +411,38 @@ else if (type === 'fixed') valueLabel.innerText = "قيمة مبلغ الخصم 
         const storyProdsContainer = document.getElementById('story-selection-prods');
         if (!mainProdsContainer || !storyProdsContainer) return;
         
+        const existingStoryCbs = storyProdsContainer.querySelectorAll('.tree-child-cb');
+        if (existingStoryCbs.length > 0) {
+            this.visualConfig.storyProducts = Array.from(storyProdsContainer.querySelectorAll('.tree-child-cb:checked')).map(cb => String(cb.value));
+        }
+
         const checkedLabels = mainProdsContainer.querySelectorAll('.tree-child-cb:checked');
         if (checkedLabels.length === 0) {
-            storyProdsContainer.innerHTML = '<div class="text-muted fs-12 text-center" style="padding: 20px;"><i class="fa-solid fa-circle-exclamation text-warning mb-5 fa-2x"></i><br>يرجى تحديد المنتجات المشمولة بالعرض في التبويب الأول أولاً.</div>';
+            storyProdsContainer.innerHTML = '<div class="text-muted fs-12 text-center p-15"><i class="fa-solid fa-circle-exclamation text-warning mb-5 fa-2x"></i><br>يرجى تحديد المنتجات المشمولة بالعرض في التبويب الأول أولاً.</div>';
             return;
         }
         
-        const savedStoryProds = this.visualConfig.storyProducts || [];
-        let html = '<div class="smart-tree-container">';
+        const savedStoryProds = (this.visualConfig.storyProducts || []).map(String);
+        let html = '';
         
         checkedLabels.forEach(cb => {
-            const prodId = cb.value;
-            const isChecked = savedStoryProds.includes(String(prodId));
+            const prodId = String(cb.value);
+            const isChecked = savedStoryProds.includes(prodId);
             
-            // 🚀 جلب البيانات الموثوقة من الذاكرة بدلاً من الاعتماد على الـ HTML المعرض للتغيير
-            const prodObj = AdminData.data.prodsMap?.[prodId] || (AdminData.data.prods || []).find(p => String(p.id) === String(prodId));
+            const prodObj = AdminData.data.prodsMap?.[prodId] || (AdminData.data.prods || []).find(p => String(p.id) === prodId);
             const prodName = prodObj ? Utils.escapeHTML(prodObj.name) : 'منتج غير معروف';
             const prodImg = prodObj ? (prodObj.img || prodObj.image) : null;
             
             html += `
-            <label class="tree-item-row" style="background: rgba(0,0,0,0.1); border-radius: 6px; margin-bottom: 5px;">
-                <input type="checkbox" class="tree-checkbox tree-child-cb" value="${prodId}" ${isChecked ? 'checked' : ''}>
+            <label class="tree-item-row">
+                <input type="checkbox" class="tree-checkbox tree-child-cb" value="${Utils.escapeHTML(prodId)}" ${isChecked ? 'checked' : ''}>
                 ${prodImg ? `<img src="${Utils.escapeHTML(prodImg)}" class="tree-thumb">` : `<div class="tree-thumb-fallback"><i class="fa-solid fa-box"></i></div>`}
-                <div class="flex-col">
+                <div class="d-flex flex-column">
                     <span class="fs-12 fw-bold text-main">${prodName}</span>
-                    <span class="fs-10 text-muted"><span class="num-en text-warning" dir="ltr">#${prodId.slice(-4)}</span></span>
+                    <span class="fs-10 text-muted"><span class="num-en text-warning font-numeric" dir="ltr" lang="en">#${Utils.escapeHTML(prodId.slice(-4))}</span></span>
                 </div>
             </label>`;
         });
-        html += '</div>';
         storyProdsContainer.innerHTML = html;
     },
 
@@ -360,7 +450,8 @@ else if (type === 'fixed') valueLabel.innerText = "قيمة مبلغ الخصم 
         document.querySelectorAll('#grid-color-selectors .color-swatch').forEach(b => b.classList.remove('active'));
         btnElement.classList.add('active');
         this.visualConfig.grid.badgeColor = btnElement.getAttribute('data-color');
-        this.renderGridPreview(); this.renderStoryPreview();
+        this.renderGridPreview(); 
+        this.renderStoryPreview();
     },
 
     setGridStyle: function(type, val, btnElement) {
@@ -368,7 +459,8 @@ else if (type === 'fixed') valueLabel.innerText = "قيمة مبلغ الخصم 
         document.querySelectorAll(`#${containerId} .style-card`).forEach(b => b.classList.remove('active'));
         btnElement.classList.add('active');
         this.visualConfig.grid[type + 'Style'] = val;
-        this.renderGridPreview(); if(this.visualConfig.storyEnabled) this.renderStoryPreview();
+        this.renderGridPreview(); 
+        if (this.visualConfig.storyEnabled) this.renderStoryPreview();
     },
 
     setGridPos: function(type, btnElement) {
@@ -394,65 +486,68 @@ else if (type === 'fixed') valueLabel.innerText = "قيمة مبلغ الخصم 
     },
 
     renderGridPreview: function() {
-        const badgeCont = document.getElementById('grid-live-badge'), timerCont = document.getElementById('grid-live-timer');
-        if(!badgeCont || !timerCont) return;
+        const badgeCont = document.getElementById('grid-live-badge');
+        const timerCont = document.getElementById('grid-live-timer');
+        if (!badgeCont || !timerCont) return;
         const badgeText = document.getElementById('grid-badge-text')?.value.trim() || '🔥 عرض محدود';
-        const v = this.visualConfig.grid; this.visualConfig.grid.badgeText = badgeText;
-        const posMap = { 'pos-tl': 'top-left', 'pos-tc': 'top-center', 'pos-tr': 'top-right', 'pos-bl': 'bottom-left', 'pos-bc': 'bottom-center', 'pos-br': 'bottom-right' };
-        const mB = posMap[v.badgePos] || v.badgePos, mT = posMap[v.timerPos] || v.timerPos;
+        const v = this.visualConfig.grid; 
+        this.visualConfig.grid.badgeText = badgeText;
         
-        const colorClass = String(v.badgeColor).replace('theme-ruby', 'badge-red')
-                                               .replace('theme-sapphire', 'badge-blue')
-                                               .replace('theme-emerald', 'badge-green')
-                                               .replace('theme-gold', 'badge-gold')
-                                               .replace('theme-sunset', 'badge-red')
-                                               .replace('theme-ocean', 'badge-blue')
-                                               .replace('theme-amethyst', 'badge-purple')
-                                               .replace('theme-cyber', 'badge-purple')
-                                               .replace('theme-carbon', 'badge-black')
-                                               .replace('theme-obsidian', 'badge-black');
+        const mB = this._getLogicalPosClass(v.badgePos);
+        const mT = this._getLogicalPosClass(v.timerPos);
+        const colorClass = this._getBadgeColorClass(v.badgeColor);
                                                
         badgeCont.innerHTML = v.badgeStyle === 'none' ? '' : `<div class="story-badge ${v.badgeStyle} ${colorClass} ${mB}">${Utils.escapeHTML(badgeText)}</div>`;
-        timerCont.innerHTML = v.timerStyle === 'none' ? '' : `<div class="${v.timerStyle} ${mT}"><i class="fa-regular fa-clock"></i> 12:30:00</div>`;
-        if(this.visualConfig.storyEnabled) this.renderStoryPreview();
+        timerCont.innerHTML = v.timerStyle === 'none' ? '' : `<div class="${v.timerStyle} ${mT}"><i class="fa-regular fa-clock me-1"></i> 12:30:00</div>`;
+        if (this.visualConfig.storyEnabled) this.renderStoryPreview();
     },
 
     updateStoryConfig: function(type, value, btnElement) {
         const parent = btnElement.closest('.sb-grid');
-        if(parent) parent.querySelectorAll('.sb-btn').forEach(b => b.classList.remove('active'));
+        if (parent) parent.querySelectorAll('.sb-btn').forEach(b => b.classList.remove('active'));
         btnElement.classList.add('active');
-        this.visualConfig.storyShape = value; this.renderStoryPreview();
+        this.visualConfig.storyShape = value; 
+        this.renderStoryPreview();
     },
 
     renderStoryPreview: function() {
-        if(!this.visualConfig.storyEnabled) return;
-        const icon = document.getElementById('sb-preview-icon'), badgeCont = document.getElementById('sb-preview-badge'), timerCont = document.getElementById('sb-preview-timer'), titleCont = document.getElementById('sb-live-title'), imgWrap = document.getElementById('sb-preview-image-box'); 
-        if(!icon || !imgWrap || !badgeCont || !timerCont || !titleCont) return;
-        const posMap = { 'pos-tl': 'top-left', 'pos-tc': 'top-center', 'pos-tr': 'top-right', 'pos-bl': 'bottom-left', 'pos-bc': 'bottom-center', 'pos-br': 'bottom-right' };
-        const mB = posMap[this.visualConfig.grid.badgePos] || this.visualConfig.grid.badgePos, mT = posMap[this.visualConfig.grid.timerPos] || this.visualConfig.grid.timerPos;
+        if (!this.visualConfig.storyEnabled) return;
+        const icon = document.getElementById('sb-preview-icon');
+        const badgeCont = document.getElementById('sb-preview-badge');
+        const timerCont = document.getElementById('sb-preview-timer');
+        const titleCont = document.getElementById('sb-live-title');
+        const imgWrap = document.getElementById('sb-preview-image-box'); 
+        if (!icon || !imgWrap || !badgeCont || !timerCont || !titleCont) return;
         
-        const colorClass = String(this.visualConfig.grid.badgeColor).replace('theme-ruby', 'badge-red')
-                                                                    .replace('theme-sapphire', 'badge-blue')
-                                                                    .replace('theme-emerald', 'badge-green')
-                                                                    .replace('theme-gold', 'badge-gold')
-                                                                    .replace('theme-sunset', 'badge-red')
-                                                                    .replace('theme-ocean', 'badge-blue')
-                                                                    .replace('theme-amethyst', 'badge-purple')
-                                                                    .replace('theme-cyber', 'badge-purple')
-                                                                    .replace('theme-carbon', 'badge-black')
-                                                                    .replace('theme-obsidian', 'badge-black');
+        const mB = this._getLogicalPosClass(this.visualConfig.grid.badgePos);
+        const mT = this._getLogicalPosClass(this.visualConfig.grid.timerPos);
+        const colorClass = this._getBadgeColorClass(this.visualConfig.grid.badgeColor);
                                                                     
-        icon.className = `promo-icon-wrapper ${this.visualConfig.storyShape} ${colorClass}`;
+        icon.className = `promo-icon-wrapper ve-story-preview-icon ${this.visualConfig.storyShape} ${colorClass}`;
         imgWrap.className = `img-wrap ${this.visualConfig.storyShape}`;
         badgeCont.innerHTML = this.visualConfig.grid.badgeStyle === 'none' ? '' : `<div class="story-badge ${this.visualConfig.grid.badgeStyle} ${colorClass} ${mB}">${Utils.escapeHTML(this.visualConfig.grid.badgeText)}</div>`;
-        timerCont.innerHTML = this.visualConfig.grid.timerStyle === 'none' ? '' : `<div class="${this.visualConfig.grid.timerStyle} ${mT}"><i class="fa-regular fa-clock"></i> 12:30:00</div>`;
+        timerCont.innerHTML = this.visualConfig.grid.timerStyle === 'none' ? '' : `<div class="${this.visualConfig.grid.timerStyle} ${mT}"><i class="fa-regular fa-clock me-1"></i> 12:30:00</div>`;
         titleCont.innerText = document.getElementById('offer-name')?.value.trim() || 'اسم العرض';
     },
 
     resetVisualBuilder: function(savedConfig = null) {
-        this.visualConfig = savedConfig ? JSON.parse(JSON.stringify(savedConfig)) : { storyEnabled: false, storyShape: 'shape-circle', storyProducts: [], grid: { badgeText: '', badgeStyle: 'none', badgeColor: 'theme-ruby', badgePos: 'pos-tr', timerStyle: 'none', timerPos: 'pos-bc' } };
-        const bInp = document.getElementById('grid-badge-text'); if(bInp) bInp.value = this.visualConfig.grid.badgeText || '';
-        const sTog = document.getElementById('offer-in-story'); if(sTog) sTog.checked = this.visualConfig.storyEnabled;
+        this.visualConfig = savedConfig ? JSON.parse(JSON.stringify(savedConfig)) : { 
+            storyEnabled: false, 
+            storyShape: 'shape-circle', 
+            storyProducts: [], 
+            grid: { 
+                badgeText: '', 
+                badgeStyle: 'none', 
+                badgeColor: 'theme-ruby', 
+                badgePos: 'pos-tr', 
+                timerStyle: 'none', 
+                timerPos: 'pos-bc' 
+            } 
+        };
+        const bInp = document.getElementById('grid-badge-text'); 
+        if (bInp) bInp.value = this.visualConfig.grid.badgeText || '';
+        const sTog = document.getElementById('offer-in-story'); 
+        if (sTog) sTog.checked = this.visualConfig.storyEnabled;
         this.toggleStoryBuilder();
         document.querySelectorAll('.color-swatch, .pos-dot, .sb-btn, .style-card').forEach(b => b.classList.remove('active'));
         document.querySelector(`.color-swatch[data-color="${this.visualConfig.grid.badgeColor}"]`)?.classList.add('active');
@@ -461,15 +556,20 @@ else if (type === 'fixed') valueLabel.innerText = "قيمة مبلغ الخصم 
         document.querySelector(`#grid-badge-style-container .style-card[data-val="${this.visualConfig.grid.badgeStyle}"]`)?.classList.add('active');
         document.querySelector(`#grid-timer-style-container .style-card[data-val="${this.visualConfig.grid.timerStyle}"]`)?.classList.add('active');
         document.querySelector(`.sb-btn[data-val="${this.visualConfig.storyShape}"]`)?.classList.add('active');
-        this.switchBuilderTab('data', null); this.renderGridPreview();
+        this.switchBuilderTab('data'); 
+        this.renderGridPreview();
     },
 
     applyGeneratedCoupon: function(code) {
         const input = document.getElementById('coupon-code');
-        if (input) { input.value = code; input.focus(); input.classList.add('flash-success'); setTimeout(() => input.classList.remove('flash-success'), 400); }
+        if (input) { 
+            input.value = code; 
+            input.focus(); 
+            input.classList.add('flash-success'); 
+            setTimeout(() => input.classList.remove('flash-success'), 400); 
+        }
     },
 
-    // 🚀 دوال جلب التحديد من الـ DOM بأمان
     getSelectedTiers: () => Array.from(document.querySelectorAll('#offer-target-tiers .tree-tier-cb:checked')).map(cb => cb.value),
     getSelectedProds: () => Array.from(document.querySelectorAll('#offer-target-prods .tree-child-cb:checked')).map(cb => cb.value),
     getSelectedStoryProds: () => Array.from(document.querySelectorAll('#story-selection-prods .tree-child-cb:checked')).map(cb => cb.value),

@@ -101,9 +101,8 @@ const token = await getToken(this._messagingInstance, {
                         }
                         
                         // عرض الإشعار كـ Toast داخل اللوحة أيضاً
-                        const title = payload.notification?.title || 'إشعار جديد';
-                        const body = payload.notification?.body || '';
-                        EventBus.emit('req-show-toast', { message: `${title}: ${body}`, type: 'info' });
+                        const title = payload.notification?.title || payload.data?.title || 'إشعار جديد';
+const body = payload.notification?.body || payload.data?.body || '';                        EventBus.emit('req-show-toast', { message: `${title}: ${body}`, type: 'info' });
                     });
                 }
                 

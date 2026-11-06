@@ -1,22 +1,24 @@
 // ============================================================================
-// 👥 وحدة المستخدمين والتوثيق (modules/users/usersUI.js) - Cloud-Native V19.7 💎
-// 🎯 الوظيفة: إدارة التفاعلات المرئية والنوافذ الديناميكية
-// 🚀 التحديثات المعمارية (V19.7 - Hybrid Cloud Tier Search & Focus Guard): 
-// 1. Hybrid Tier Search 🔍: فلترة محلية لحظية (0ms) مع بحث سحابي تلقائي (Debounced) إذا لم يوجد العميل ضمن أول 50 بطاقة.
-// 2. Dynamic Creation 📦: خلق النوافذ برمجياً عند الطلب فقط لتقليل استهلاك الذاكرة.
-// 3. Smart Garbage Collector 🧹: إضافة كلاس (dynamic-auto-destroy) لتدمير النوافذ ذاتياً بعد الإغلاق.
-// 4. Zero Jitter Shield 🛡️: إجبار المتصفح على حساب الأبعاد (offsetWidth) قبل الظهور لمنع التمدد.
+// 👥 وحدة المستخدمين والتوثيق (modules/users/usersUI.js) - Cloud-Native V20.4 💎
+// 🎯 الوظيفة: إدارة التفاعلات المرئية والنوافذ الديناميكية وأنيميشن الرصيد المعتمد
+// 🚀 التحديثات المعمارية:
+// 1. Standardized Money Rendering 💵: اعتماد RenderHelpers.formatMoney / AdminRender.formatMoney في أنيميشن الرصيد لمنع الترقيع النصي للعملات.
+// 2. Reflow-Safe Balance Animation ⚡: إعادة تشغيل كلاسات النبض (bal-pop-up / bal-pop-down) عبر إجبار الـ Reflow لضمان عمل الأنيميشن عند النقر المتكرر.
+// 3. Modal Lifecycle Hardening 🛡️: توحيد إغلاق النوافذ لمنع تضارب المعرفات (user-edit و m-user-edit) وضمان تنظيف الطبقات المتراكمة في الـ DOM.
+// 4. Memory Leak & Timer Protection ⏱️: ضبط مؤقت البحث المباشر ومزامنة نبضات شارة التوثيق (KYC Badge) لمنع تداخل التوقيتات.
 // ============================================================================
 
 import { AdminData } from '../../adminData.js';
 import { UsersTemplates } from './usersTemplates.js';
 import { Utils, EventBus } from '../../adminUtils.js';
 import { UIService } from '../../core/uiService.js';
+import { RenderHelpers } from '../../core/renderHelpers.js';
 import { UsersRender } from './usersRender.js'; 
 
 export const UsersUI = {
     tempKycConfig: null,
     _tierSearchTimer: null,
+    _kycBadgeTimer: null,
     _hadCloudTierSearch: false,
     
     // ---------------------------------------------------------
@@ -80,10 +82,22 @@ export const UsersUI = {
     animateBalanceUpdate: function(newBal, curCode, type) {
         const modalBalVal = document.querySelector('#tab-wallet .ud-balance-card-pro .val');
         if (modalBalVal) {
-            modalBalVal.innerHTML = `${Utils.enNum(newBal, 2)} <span class="cur">${curCode}</span>`;
+            const formattedMoney = window.AdminRender?.formatMoney 
+                ? window.AdminRender.formatMoney(newBal, curCode, 2)
+                : (RenderHelpers?.formatMoney 
+                    ? RenderHelpers.formatMoney(newBal, curCode, 2)
+                    : `${Utils.enNum(newBal, 2)} ${Utils.escapeHTML(curCode)}`);
+                    
+            modalBalVal.innerHTML = formattedMoney;
+            
             const popClass = type === 'add' ? 'bal-pop-up' : 'bal-pop-down';
+            modalBalVal.classList.remove('bal-pop-up', 'bal-pop-down');
+            void modalBalVal.offsetWidth;
+            
             modalBalVal.classList.add(popClass);
-            setTimeout(() => { modalBalVal.classList.remove(popClass); }, 300);
+            setTimeout(() => { 
+                modalBalVal.classList.remove(popClass); 
+            }, 300);
         }
     },
     
@@ -165,7 +179,6 @@ export const UsersUI = {
             emptyState.remove();
         }
 
-        // 🚀 بحث سحابي تلقائي إذا لم يكن العميل ضمن الـ 50 بطاقة المعروضة محلياً، أو عند مسح البحث السحابي السابق
         if (this._tierSearchTimer) clearTimeout(this._tierSearchTimer);
         if ((visibleCount === 0 && term.length >= 2) || (term === '' && this._hadCloudTierSearch)) {
             this._tierSearchTimer = setTimeout(() => {
@@ -178,32 +191,34 @@ export const UsersUI = {
     },
     
     showTierSelection: async function(userId) {
-    const strId = String(userId);
-    let u = AdminData.data.usersMap?.[strId] ||
-        (AdminData.data.users || []).find(x => String(x.id) === strId) ||
-        (AdminData.data.kycPendingUsers || []).find(x => String(x.id) === strId);
-    if (!u) {
-        UIService.showToast('تعذر العثور على العميل لتغيير مستواه', 'error');
-        return;
-    }
-    
-    let modal = document.getElementById('tier-selection-modal');
-    if (!modal) {
-        modal = document.createElement('div');
-        modal.id = 'tier-selection-modal';
-        modal.className = 'modal-overlay dynamic-auto-destroy';
-        document.body.appendChild(modal);
-    }
-    
-    const tiers = AdminData.data.tiers || [];
-    modal.innerHTML = UsersTemplates.tierSelectionModal(u, tiers);
-    
-    void modal.offsetWidth;
-    
-    requestAnimationFrame(() => {
-        modal.classList.add('active');
-    });
-},    selectTierOption: function(element) {
+        const strId = String(userId);
+        let u = AdminData.data.usersMap?.[strId] ||
+            (AdminData.data.users || []).find(x => String(x.id) === strId) ||
+            (AdminData.data.kycPendingUsers || []).find(x => String(x.id) === strId);
+        if (!u) {
+            UIService.showToast('تعذر العثور على العميل لتغيير مستواه', 'error');
+            return;
+        }
+        
+        let modal = document.getElementById('tier-selection-modal');
+        if (!modal) {
+            modal = document.createElement('div');
+            modal.id = 'tier-selection-modal';
+            modal.className = 'modal-overlay dynamic-auto-destroy';
+            document.body.appendChild(modal);
+        }
+        
+        const tiers = AdminData.data.tiers || [];
+        modal.innerHTML = UsersTemplates.tierSelectionModal(u, tiers);
+        
+        void modal.offsetWidth;
+        
+        requestAnimationFrame(() => {
+            modal.classList.add('active');
+        });
+    },
+
+    selectTierOption: function(element) {
         document.querySelectorAll('.tier-option').forEach(opt => opt.classList.remove('selected'));
         element.classList.add('selected');
         
@@ -214,16 +229,10 @@ export const UsersUI = {
         const container = document.getElementById('tier-override-container');
         
         if (checkbox && container && tier) {
-            if (tier.type === 'api') {
-                checkbox.checked = true;
-                checkbox.disabled = true;
-                container.style.opacity = '0.6';
-                container.style.cursor = 'not-allowed';
-            } else {
-                checkbox.disabled = false;
-                container.style.opacity = '1';
-                container.style.cursor = 'pointer';
-            }
+            const isApiTier = tier.type === 'api';
+            checkbox.checked = isApiTier || checkbox.checked;
+            checkbox.disabled = isApiTier;
+            container.classList.toggle('disabled', isApiTier);
         }
 
         EventBus.emit('tier-option-selected', tierId);
@@ -232,6 +241,7 @@ export const UsersUI = {
     closeTierSelection: function() {
         if (window.AdminUI && window.AdminUI.closeModal) {
             window.AdminUI.closeModal('tier-selection-modal');
+            window.AdminUI.closeModal('tier-selection');
         }
     },
     
@@ -239,28 +249,31 @@ export const UsersUI = {
     // 👤 2. إدارة ملفات المستخدمين (Users)
     // ---------------------------------------------------------
     openUserEditModal: function(userId) {
-    const strId = String(userId);
-    const u = AdminData.data.usersMap?.[strId] ||
-        (AdminData.data.users || []).find(x => String(x.id) === strId) ||
-        (AdminData.data.kycPendingUsers || []).find(x => String(x.id) === strId);
-    if (!u) return UIService.showToast('لم يتم العثور على العميل', 'error');
-    
-    let modal = document.getElementById('m-user-edit');
-    if (!modal) {
-        modal = document.createElement('div');
-        modal.id = 'm-user-edit';
-        modal.className = 'modal-overlay dynamic-auto-destroy';
-        document.body.appendChild(modal);
-    }
-    
-    modal.innerHTML = UsersTemplates.userEditModal(u);
-    void modal.offsetWidth;
-    
-    requestAnimationFrame(() => {
-        modal.classList.add('active');
-    });
-},    closeUserEditModal: function() {
+        const strId = String(userId);
+        const u = AdminData.data.usersMap?.[strId] ||
+            (AdminData.data.users || []).find(x => String(x.id) === strId) ||
+            (AdminData.data.kycPendingUsers || []).find(x => String(x.id) === strId);
+        if (!u) return UIService.showToast('لم يتم العثور على العميل', 'error');
+        
+        let modal = document.getElementById('m-user-edit');
+        if (!modal) {
+            modal = document.createElement('div');
+            modal.id = 'm-user-edit';
+            modal.className = 'modal-overlay dynamic-auto-destroy';
+            document.body.appendChild(modal);
+        }
+        
+        modal.innerHTML = UsersTemplates.userEditModal(u);
+        void modal.offsetWidth;
+        
+        requestAnimationFrame(() => {
+            modal.classList.add('active');
+        });
+    },
+
+    closeUserEditModal: function() {
         if (window.AdminUI && window.AdminUI.closeModal) {
+            window.AdminUI.closeModal('user-edit');
             window.AdminUI.closeModal('m-user-edit');
         }
     },
@@ -309,11 +322,15 @@ export const UsersUI = {
         const badge = document.getElementById('nav-kyc-count');
         if (!badge) return;
         
+        if (this._kycBadgeTimer) clearTimeout(this._kycBadgeTimer);
+        
         if (count > 0) {
             badge.textContent = count > 99 ? '+99' : count;
             badge.classList.remove('hide-element');
-            badge.classList.add('animate__animated', 'animate__pulse');
-            setTimeout(() => badge.classList.remove('animate__animated', 'animate__pulse'), 1000);
+            badge.classList.add('pulse-badge');
+            this._kycBadgeTimer = setTimeout(() => {
+                badge.classList.remove('pulse-badge');
+            }, 1500);
         } else {
             badge.classList.add('hide-element');
         }

@@ -1,10 +1,12 @@
 // ============================================================================
-// 👥 قوالب المستخدمين والتوثيق (modules/users/usersTemplates.js) - Enterprise V19.6 💎
+// 👥 قوالب المستخدمين والتوثيق (modules/users/usersTemplates.js) - Enterprise V19.9 💎
 // 🎯 الوظيفة: توليد الـ HTML النقي المدمج بالبيانات لملفات العملاء والتوثيق
-// 🚀 التحديث (V19.6 - Cloud Radar Target, Unified Country Field & Smart Gates):
-// 1. Cloud Radar Target 🛡️: إضافة radarBoxContent لتحديث رادار الحسابات المتعددة سحابياً (جهاز + IP).
-// 2. Unified Country Field 🌍: توحيد قراءة وتعديل حقل الدولة على (country) فقط.
-// 3. Smart Gates & Unlimited Duration ♾️: دعم عرض وإدخال المهلة المفتوحة (0 = ∞).
+// 🌟 التحديثات المعمارية:
+// 1. Standard Order Badges 🏷️: استبدال .status-badge بالكلاس المعتمد في admin.css وهو .oh-status.
+// 2. Standardized Chips 💎: توحيد كبسولات حالة الحساب والتوثيق عبر .v-stat-chip (.chip-success, .chip-warning, .chip-danger, .chip-sold).
+// 3. Animation Cleanup 🧹: إزالة فئات الحركة الوهمية غير المعرفة (animate__animated animate__fadeIn).
+// 4. Modal Overrides Sync ⚙️: تصحيح كلاس تعطيل خيار تثبيت المستوى إلى .disabled بدلاً من .btn-disabled.
+// 5. Native CSS Hidden 🛡️: استبدال خاصية hidden بكلاس النظام المركزي .hide-element.
 // ============================================================================
 
 import { Utils } from '../../adminUtils.js';
@@ -64,22 +66,31 @@ export const UsersTemplates = {
     radarBoxContent: function(relatedAccounts = []) {
         if (Array.isArray(relatedAccounts) && relatedAccounts.length > 0) {
             return `
-                <div class="alert-box alert-danger mt-10 p-10">
-                    <div class="fs-12 fw-bold mb-5"><i class="fa-solid fa-triangle-exclamation me-1"></i> رادار الحسابات المتعددة:</div>
-                    <div class="fs-11">تم اكتشاف ارتباط هذا العميل بالحسابات التالية (بصمة جهاز أو شبكة IP):</div>
-                    <div class="mt-5 d-flex flex-wrap gap-2">
+                <div class="ud-radar-alert alert-danger mt-12 p-12">
+                    <div class="fs-12 fw-bold text-danger mb-8 flex-align-center gap-2">
+                        <i class="fa-solid fa-triangle-exclamation"></i>
+                        <span>رادار كشف الحسابات المشتركة (${relatedAccounts.length})</span>
+                    </div>
+                    <div class="fs-11 text-muted mb-10">تم رصد اشتراك هذا العميل مع الحسابات التالية:</div>
+                    <div class="d-flex flex-column gap-2">
                         ${relatedAccounts.map(acc => `
-                            <span class="badge-tag clickable interactive-scale ${acc.isBanned ? 'bg-danger text-white' : 'bg-warning text-dark'}" data-action="view-user" data-id="${_esc(acc.id)}" title="${_esc(acc.reason || 'حساب مشترك')}">
-                                <i class="fa-solid ${acc.isBanned ? 'fa-ban' : 'fa-link'} me-1"></i> ${_esc(acc.name)} ${acc.reason ? `<small class="opacity-75">(${_esc(acc.reason)})</small>` : ''}
-                            </span>
+                            <div class="ud-radar-item interactive-scale" data-action="view-user" data-id="${_esc(acc.id)}">
+                                <span class="fs-12 fw-bold text-main flex-align-center gap-2">
+                                    <i class="fa-solid ${acc.isBanned ? 'fa-ban text-danger' : 'fa-user text-warning'}"></i>
+                                    <span>${_esc(acc.name)}</span>
+                                </span>
+                                <span class="v-stat-chip fs-10 ${acc.isBanned ? 'chip-danger' : 'chip-warning'}">
+                                    ${_esc(acc.reason || 'حساب مشترك')}
+                                </span>
+                            </div>
                         `).join('')}
                     </div>
                 </div>
             `;
         }
         return `
-            <div class="alert-box alert-success mt-10 alert-py-8-px-10">
-                <div class="fs-11"><i class="fa-solid fa-shield-check me-1"></i> العميل نظيف (لا يوجد حسابات مشتركة).</div>
+            <div class="ud-radar-alert alert-success mt-12 p-10 text-center">
+                <div class="fs-11 text-success fw-bold"><i class="fa-solid fa-shield-check me-1"></i> العميل نظيف (لا توجد حسابات أخرى مرتبطة به).</div>
             </div>
         `;
     },
@@ -90,10 +101,10 @@ export const UsersTemplates = {
         const statusClass = `status-${exactStatus}`;
         
         const kycBadge = u.kycStatus === 'approved' 
-            ? `<i class="fa-solid fa-shield-check text-success mx-1" title="حساب موثق (KYC)"></i>` : '';
+            ? `<i class="fa-solid fa-shield-check text-success ms-1" title="حساب موثق (KYC)"></i>` : '';
             
         const apiBadge = u.isApiMerchant === true 
-            ? `<i class="fa-solid fa-code text-warning mx-1" title="تاجر API"></i>` : '';
+            ? `<i class="fa-solid fa-code text-warning ms-1" title="تاجر API"></i>` : '';
         
         const userImg = u.profileImage || u.img;
         const avatarInner = userImg 
@@ -109,7 +120,7 @@ export const UsersTemplates = {
             else if (rankNum === 2) rankClass = 'rank-silver'; 
             else if (rankNum === 3) rankClass = 'rank-bronze'; 
         }
-        const rankBadgeHtml = `<div class="usr-rank-badge font-numeric ${rankClass}" dir="ltr">${rankNum}</div>`;
+        const rankBadgeHtml = `<div class="usr-rank-badge ${rankClass} font-numeric" dir="ltr">${rankNum}</div>`;
 
         let displaySpend = '';
         if (sortType === 'spend_all') displaySpend = `<div class="usr-leader-spend"><i class="fa-solid fa-trophy text-gold"></i> الإجمالي: <span class="num-en text-gold font-numeric" dir="ltr">${RenderHelpers.formatMoney(u.totalSpent || 0, 'USD', 2)}</span></div>`;
@@ -161,43 +172,43 @@ export const UsersTemplates = {
         const shortId = isOrder ? RenderHelpers.formatOrderId(tx) : (RenderHelpers.formatDepositId ? RenderHelpers.formatDepositId(tx) : _esc(String(tx.displayId || tx.id).substring(0, 8)));
         
         return `
-        <div class="ud-order-item ud-tx-item d-flex align-items-center justify-content-between gap-3 p-3 interactive-scale" data-action="open-tx-detail" data-id="${_esc(tx.id)}" data-type="${_esc(tx.txType)}">
+        <div class="ud-order-item ud-tx-item interactive-scale" data-action="open-tx-detail" data-id="${_esc(tx.id)}" data-type="${_esc(tx.txType)}">
             <div class="tx-info-col">
-                <div class="ud-order-id num-en d-flex align-items-center gap-2 fw-bold text-truncate font-numeric" dir="ltr" lang="en">
+                <div class="ud-order-id num-en flex-align-center gap-2 fw-bold font-numeric" dir="ltr" lang="en">
                     <i class="fa-solid ${iconClass} ${(isOrder || isDeduct) ? 'text-muted' : 'text-success'}"></i> ${shortId}
                 </div>
                 <div class="ud-order-date num-en text-muted fs-11 font-numeric" dir="ltr" lang="en">
                     ${(tx.time || tx.date || tx.createdAt) ? RenderHelpers.formatSafeDate(tx.time || tx.date || tx.createdAt) : '---'}
                 </div>
             </div>
-            <div class="text-end d-flex flex-column align-items-end tx-amount-col">
-                <div class="ud-order-price num-en fw-800 fs-14 text-end lh-12 text-wrap ${amountColorClass} font-numeric" dir="ltr" lang="en">
+            <div class="tx-amount-col">
+                <div class="ud-order-price num-en fw-800 fs-14 lh-12 ${amountColorClass} font-numeric" dir="ltr" lang="en">
                     ${sign}${_formatMoneyCompact(amount, currency)}
                 </div>
-                <span class="status-badge ${statusClass} mt-1 text-nowrap">${sText}</span>
+                <span class="oh-status ${statusClass}">${sText}</span>
             </div>
         </div>`;
     },
 
     userDetailBody: (u, uiData) => {
         const sm = u.isIpBanned 
-            ? { t: 'حظر IP', i: 'network-wired', c: 'danger' } 
-            : (u.isBanned ? { t: 'محظور', i: 'ban', c: 'danger' } : (u.isRestricted ? { t: 'مقيّد', i: 'lock', c: 'warning' } : { t: 'نشط', i: 'check-circle', c: 'success' }));
+            ? { t: 'حظر IP', i: 'network-wired', c: 'chip-danger' } 
+            : (u.isBanned ? { t: 'محظور', i: 'ban', c: 'chip-danger' } : (u.isRestricted ? { t: 'مقيّد', i: 'lock', c: 'chip-warning' } : { t: 'نشط', i: 'check-circle', c: 'chip-success' }));
         
         const kycBadgeObj = { 
-            approved: { t: 'مكتمل (موثق)', i: 'shield-check', c: 'status-badge-check-circle' }, 
-            pending: { t: 'قيد المراجعة', i: 'hourglass-half', c: 'status-badge-lock' }, 
-            rejected: { t: 'مرفوض', i: 'shield-xmark', c: 'status-badge-ban' }, 
-            none: { t: 'غير موثق', i: 'shield', c: 'status-badge-default' } 
-        }[u.kycStatus || 'none'] || { t: 'غير موثق', i: 'shield', c: 'status-badge-default' };
+            approved: { t: 'مكتمل (موثق)', i: 'shield-check', c: 'chip-success' }, 
+            pending: { t: 'قيد المراجعة', i: 'hourglass-half', c: 'chip-warning' }, 
+            rejected: { t: 'مرفوض', i: 'shield-xmark', c: 'chip-danger' }, 
+            none: { t: 'غير موثق', i: 'shield', c: 'chip-sold' } 
+        }[u.kycStatus || 'none'] || { t: 'غير موثق', i: 'shield', c: 'chip-sold' };
 
         const apiBadgeFull = u.isApiMerchant === true
-            ? `<span class="badge bg-dark text-warning ms-2 fs-10" style="vertical-align: middle;"><i class="fa-solid fa-code"></i> مسار API</span>` : '';
+            ? `<span class="v-stat-chip chip-warning ms-2 fs-10"><i class="fa-solid fa-code"></i> مسار API</span>` : '';
 
         let kycDocsHtml = '';
         if (u.kycData && (u.kycData.frontImg || u.kycData.backImg || u.kycData.selfieImg)) {
             kycDocsHtml = `
-                <div class="d-flex flex-wrap gap-2 mt-15">
+                <div class="flex-wrap-gap-2 mt-15">
                     ${u.kycData.frontImg ? `<button class="btn btn-ghost btn-compact flex-1 interactive-scale" data-action="open-img-viewer" data-src="${_esc(u.kycData.frontImg)}"><i class="fa-solid fa-id-card me-1"></i> الوجه الأمامي</button>` : ''}
                     ${u.kycData.backImg ? `<button class="btn btn-ghost btn-compact flex-1 interactive-scale" data-action="open-img-viewer" data-src="${_esc(u.kycData.backImg)}"><i class="fa-solid fa-id-card me-1"></i> الوجه الخلفي</button>` : ''}
                     ${u.kycData.selfieImg ? `<button class="btn btn-ghost btn-compact flex-1 interactive-scale" data-action="open-img-viewer" data-src="${_esc(u.kycData.selfieImg)}"><i class="fa-solid fa-camera me-1"></i> السيلفي</button>` : ''}
@@ -207,7 +218,6 @@ export const UsersTemplates = {
 
         const userReview = uiData.userReview;
         let ratingHtml = '';
-        
         if (userReview) {
             const safeRating = Math.max(0, Math.min(5, Number(userReview.rating) || 0));
             const stars = '<i class="fa-solid fa-star text-warning"></i>'.repeat(safeRating) + 
@@ -215,16 +225,16 @@ export const UsersTemplates = {
             const mood = safeRating >= 4 ? 'عميل راضٍ جداً 🟢' : (safeRating <= 2 ? 'عميل غاضب 🔴' : 'عميل محايد 🟡');
             
             ratingHtml = `
-            <div class="ud-info-row mt-15 p-10 review-box-warning interactive-scale">
+            <div class="ud-info-row review-box-warning">
                 <span class="ud-info-lbl text-warning"><i class="fa-solid fa-star me-1"></i> تقييم العميل للمتجر</span>
-                <div class="text-start">
-                    <div class="mb-5 fs-14">${stars}</div>
+                <span class="ud-info-val text-start">
+                    <span class="mb-5 fs-14">${stars}</span>
                     <span class="fs-11 text-muted">${mood} ${(userReview.comment || userReview.text) ? ` - "${_esc(userReview.comment || userReview.text)}"` : ''}</span>
-                </div>
+                </span>
             </div>`;
         } else {
             ratingHtml = `
-            <div class="ud-info-row mt-15 p-10 review-box-empty">
+            <div class="ud-info-row review-box-empty">
                 <span class="ud-info-lbl text-muted"><i class="fa-regular fa-star me-1"></i> تقييم العميل للمتجر</span>
                 <span class="ud-info-val text-muted fs-11">لم يقم بتقييم المتجر بعد</span>
             </div>`;
@@ -234,153 +244,219 @@ export const UsersTemplates = {
         const safeUid = _esc(u.id);
 
         return `
+            <!-- 🌟 تبويب 1: نظرة عامة -->
             <div id="tab-overview" class="ud-tab-content active">
-                <div class="ud-section-header ud-header-clean mt-5 mb-10 ud-header-flex">
-                    <div class="flex-center-gap">
-                        ${userImg ? `<img src="${_esc(userImg)}" class="zoomable-img ud-header-avatar interactive-scale" data-action="open-img-viewer" data-src="${_esc(userImg)}">` : ''}
-                        <h3 class="ud-section-title"><i class="fa-solid fa-user-tie me-1"></i> البيانات الشخصية</h3>
+                <div class="card mb-15 p-15">
+                    <div class="ud-header-flex mb-15">
+                        <div class="flex-center-gap">
+                            ${userImg ? `<img src="${_esc(userImg)}" class="ud-header-avatar">` : ''}
+                            <h3 class="ud-section-title m-0"><i class="fa-solid fa-user-tie text-primary me-1"></i> البيانات الشخصية</h3>
+                        </div>
+                        <button class="btn btn-ghost btn-compact interactive-scale" data-action="open-user-edit" data-id="${safeUid}">
+                            <i class="fa-solid fa-pen me-1"></i> تعديل
+                        </button>
                     </div>
-                    <button class="btn btn-ghost btn-compact interactive-scale" data-action="open-user-edit" data-id="${safeUid}"><i class="fa-solid fa-pen me-1"></i> تعديل</button>
-                </div>
-                <div class="ud-info-list">
-                    <div class="ud-info-row"><span class="ud-info-lbl"><i class="fa-regular fa-id-badge"></i> الاسم الكامل</span><span class="ud-info-val ud-copyable interactive-scale" title="انقر للنسخ" data-action="copy-to-clipboard">${_esc(uiData.rawName)}</span></div>
-                    <div class="ud-info-row"><span class="ud-info-lbl"><i class="fa-solid fa-at"></i> اسم المستخدم</span><span class="ud-info-val num-en ud-copyable font-numeric interactive-scale" dir="ltr" lang="en" title="انقر للنسخ" data-action="copy-to-clipboard">${u.username ? '@' + _esc(u.username) : '---'}</span></div>
-                    <div class="ud-info-row"><span class="ud-info-lbl"><i class="fa-solid fa-fingerprint"></i> معرف العميل (ID)</span><span class="ud-info-val font-numeric" dir="ltr">${RenderHelpers.formatUserId(u)}</span></div>
-                    <div class="ud-info-row"><span class="ud-info-lbl"><i class="fa-solid fa-envelope"></i> البريد</span><span class="ud-info-val num-en font-numeric ${u.email ? 'ud-copyable interactive-scale' : 'text-muted'}" dir="ltr" lang="en" ${u.email ? 'title="انقر للنسخ" data-action="copy-to-clipboard"' : ''}>${u.email ? _esc(u.email) : '----'}</span></div>
-                    <div class="ud-info-row"><span class="ud-info-lbl"><i class="fa-solid fa-phone"></i> رقم الهاتف</span><span class="ud-info-val num-en font-numeric ${u.phone ? 'ud-copyable interactive-scale' : 'text-muted'}" dir="ltr" lang="en" ${u.phone ? 'title="انقر للنسخ" data-action="copy-to-clipboard"' : ''}>${u.phone ? _esc(u.phone) : '----'}</span></div>
-                    <div class="ud-info-row"><span class="ud-info-lbl"><i class="fa-solid fa-gem"></i> مستوى العميل</span><span class="ud-info-val ud-copyable interactive-scale" title="انقر للنسخ" data-action="copy-to-clipboard"><i class="fa-solid fa-crown text-gold me-1"></i> ${_esc(uiData.tierName)} ${apiBadgeFull}</span></div>
-                    <div class="ud-info-row"><span class="ud-info-lbl"><i class="fa-solid fa-coins"></i> عملة الحساب</span><span class="ud-info-val num-en ud-copyable font-numeric interactive-scale" dir="ltr" lang="en" title="انقر للنسخ" data-action="copy-to-clipboard">${uiData.safeCurrency}</span></div>
-                    <div class="ud-info-row"><span class="ud-info-lbl"><i class="fa-solid fa-earth-americas"></i> الدولة</span><span class="ud-info-val ud-copyable interactive-scale" title="انقر للنسخ" data-action="copy-to-clipboard">${_esc(u.country || 'غير محدد')}</span></div>
-                    <div class="ud-info-row"><span class="ud-info-lbl"><i class="fa-regular fa-calendar-check"></i> التسجيل</span><span class="ud-info-val ud-copyable interactive-scale ${uiData.joinDate === 'غير متوفر' ? '' : 'num-en font-numeric'}" dir="ltr" lang="en" title="انقر للنسخ" data-action="copy-to-clipboard">${uiData.joinDate}</span></div>
-                    
-                    ${ratingHtml}
-                </div>
-                
-                <div class="ud-section mt-15">
-                    <div class="ud-section-header ud-header-clean"><h3 class="ud-section-title"><i class="fa-solid fa-bell me-1"></i> إرسال تنبيه للعميل</h3></div>
-                    <div class="ud-form-col mt-10">
-                        <textarea id="user-custom-notif" class="form-input ud-textarea" placeholder="اكتب رسالة التنبيه هنا لتظهر للعميل في حسابه..."></textarea>
-                        <button class="btn btn-primary ud-btn-full mt-10 interactive-scale" data-action="send-custom-notif" data-id="${safeUid}"><i class="fa-solid fa-paper-plane me-1"></i> إرسال التنبيه</button>
+
+                    <div class="ud-info-list">
+                        <div class="ud-info-row">
+                            <span class="ud-info-lbl"><i class="fa-regular fa-id-badge"></i> الاسم الكامل</span>
+                            <span class="ud-info-val ud-copyable interactive-scale" title="انقر للنسخ" data-action="copy-to-clipboard">${_esc(uiData.rawName)}</span>
+                        </div>
+                        <div class="ud-info-row">
+                            <span class="ud-info-lbl"><i class="fa-solid fa-at"></i> اسم المستخدم</span>
+                            <span class="ud-info-val font-numeric ud-copyable interactive-scale" dir="ltr" title="انقر للنسخ" data-action="copy-to-clipboard">${u.username ? '@' + _esc(u.username) : '---'}</span>
+                        </div>
+                        <div class="ud-info-row">
+                            <span class="ud-info-lbl"><i class="fa-solid fa-hashtag"></i> كود العميل المختصر (ID)</span>
+                            <span class="ud-info-val font-numeric" dir="ltr">${RenderHelpers.formatUserId(u)}</span>
+                        </div>
+                        <div class="ud-info-row">
+                            <span class="ud-info-lbl"><i class="fa-solid fa-database"></i> معرف قاعدة البيانات (UID)</span>
+                            <span class="ud-info-val font-numeric ud-copyable interactive-scale" dir="ltr" title="انقر لنسخ المعرف الكامل" data-action="copy-to-clipboard">${_esc(u.uid || u.id)}</span>
+                        </div>
+                        <div class="ud-info-row">
+                            <span class="ud-info-lbl"><i class="fa-solid fa-envelope"></i> البريد الإلكتروني</span>
+                            <span class="ud-info-val font-numeric ${u.email ? 'ud-copyable interactive-scale' : 'text-muted'}" dir="ltr" ${u.email ? 'title="انقر للنسخ" data-action="copy-to-clipboard"' : ''}>${u.email ? _esc(u.email) : '----'}</span>
+                        </div>
+                        <div class="ud-info-row">
+                            <span class="ud-info-lbl"><i class="fa-solid fa-phone"></i> رقم الهاتف</span>
+                            <span class="ud-info-val font-numeric ${u.phone ? 'ud-copyable interactive-scale' : 'text-muted'}" dir="ltr" ${u.phone ? 'title="انقر للنسخ" data-action="copy-to-clipboard"' : ''}>${u.phone ? _esc(u.phone) : '----'}</span>
+                        </div>
+                        <div class="ud-info-row">
+                            <span class="ud-info-lbl"><i class="fa-solid fa-gem"></i> مستوى العميل</span>
+                            <span class="ud-info-val"><i class="fa-solid fa-crown text-gold me-1"></i> ${_esc(uiData.tierName)} ${apiBadgeFull}</span>
+                        </div>
+                        <div class="ud-info-row">
+                            <span class="ud-info-lbl"><i class="fa-solid fa-coins"></i> عملة الحساب</span>
+                            <span class="ud-info-val font-numeric">${uiData.safeCurrency}</span>
+                        </div>
+                        <div class="ud-info-row">
+                            <span class="ud-info-lbl"><i class="fa-solid fa-earth-americas"></i> الدولة</span>
+                            <span class="ud-info-val">${_esc(u.country || 'غير محدد')}</span>
+                        </div>
+                        <div class="ud-info-row">
+                            <span class="ud-info-lbl"><i class="fa-regular fa-calendar-check"></i> تاريخ التسجيل</span>
+                            <span class="ud-info-val font-numeric" dir="ltr">${uiData.joinDate}</span>
+                        </div>
+                        ${ratingHtml}
                     </div>
+                </div>
+
+                <!-- كرت إرسال التنبيه المفصول بمسافة واضحة -->
+                <div class="card mb-15 p-15">
+                    <h3 class="ud-section-title mb-12"><i class="fa-solid fa-bell text-warning me-1"></i> إرسال تنبيه مخصص للعميل</h3>
+                    <textarea id="user-custom-notif" class="form-input ud-textarea mb-12" placeholder="اكتب رسالة التنبيه هنا لتظهر في حساب العميل..."></textarea>
+                    <button class="btn btn-primary w-100 interactive-scale" data-action="send-custom-notif" data-id="${safeUid}">
+                        <i class="fa-solid fa-paper-plane me-1"></i> إرسال التنبيه
+                    </button>
                 </div>
             </div>
             
+            <!-- 🌟 تبويب 2: المحفظة -->
             <div id="tab-wallet" class="ud-tab-content">
-                <div class="ud-balance-card-pro">
-                    <div class="lbl">الرصيد الحالي بالمحفظة</div>
-                    <div class="val num-en font-numeric" dir="ltr" lang="en">${RenderHelpers.formatMoney(uiData.bal, uiData.safeCurrency, 2)}</div>
+                <div class="ud-balance-card-pro mb-15">
+                    <div class="lbl"><i class="fa-solid fa-wallet me-1"></i> الرصيد الحالي بالمحفظة</div>
+                    <div class="val font-numeric" dir="ltr">${RenderHelpers.formatMoney(uiData.bal, uiData.safeCurrency, 2)}</div>
                     <div class="bal-actions">
-                        <button class="btn btn-primary interactive-scale" data-action="adjust-balance" data-type="add" data-id="${safeUid}"><i class="fa-solid fa-plus me-1"></i> إيداع</button>
-                        <button class="btn btn-danger interactive-scale" data-action="adjust-balance" data-type="deduct" data-id="${safeUid}"><i class="fa-solid fa-minus me-1"></i> خصم</button>
+                        <button class="btn btn-success flex-1 interactive-scale" data-action="adjust-balance" data-type="add" data-id="${safeUid}">
+                            <i class="fa-solid fa-plus me-1"></i> إيداع رصيد
+                        </button>
+                        <button class="btn btn-danger flex-1 interactive-scale" data-action="adjust-balance" data-type="deduct" data-id="${safeUid}">
+                            <i class="fa-solid fa-minus me-1"></i> خصم رصيد
+                        </button>
                     </div>
                 </div>
-                <div class="ud-section">
-                    <div class="ud-section-header ud-header-clean"><h3 class="ud-section-title"><i class="fa-solid fa-chart-pie me-1"></i> الإحصائيات المالية</h3></div>
-                    
-                    <div class="ud-stats-grid mt-10">
-                        <div class="ud-info-row ud-stat-box"><span class="ud-info-lbl"><i class="fa-solid fa-sack-dollar"></i> المشتريات</span><span class="ud-info-val num-en ud-stat-val-success font-numeric" dir="ltr" lang="en">${RenderHelpers.formatMoney(uiData.totalSpent, 'USD', 2)}</span></div>
-                        <div class="ud-info-row ud-stat-box"><span class="ud-info-lbl"><i class="fa-solid fa-wallet"></i> الإيداعات</span><span class="ud-info-val num-en text-info font-numeric" dir="ltr" lang="en">${RenderHelpers.formatMoney(u.totalDeposit || 0, 'USD', 2)}</span></div>
-                        <div class="ud-info-row ud-stat-box"><span class="ud-info-lbl"><i class="fa-solid fa-boxes-stacked"></i> الطلبات</span><span class="ud-info-val num-en font-numeric" dir="ltr" lang="en">${_enNum(uiData.totalOrdersCount)} طلب</span></div>
+
+                <div class="card mb-15 p-15">
+                    <h3 class="ud-section-title mb-12"><i class="fa-solid fa-chart-pie text-primary me-1"></i> الإحصائيات المالية للعميل</h3>
+                    <div class="ud-stats-grid">
+                        <div class="ud-info-row ud-stat-box">
+                            <span class="ud-info-lbl"><i class="fa-solid fa-sack-dollar text-gold"></i> المشتريات</span>
+                            <span class="ud-info-val text-success font-numeric" dir="ltr">${RenderHelpers.formatMoney(uiData.totalSpent, 'USD', 2)}</span>
+                        </div>
+                        <div class="ud-info-row ud-stat-box">
+                            <span class="ud-info-lbl"><i class="fa-solid fa-wallet text-info"></i> الإيداعات</span>
+                            <span class="ud-info-val text-info font-numeric" dir="ltr">${RenderHelpers.formatMoney(u.totalDeposit || 0, 'USD', 2)}</span>
+                        </div>
+                        <div class="ud-info-row ud-stat-box">
+                            <span class="ud-info-lbl"><i class="fa-solid fa-boxes-stacked text-warning"></i> الطلبات</span>
+                            <span class="ud-info-val font-numeric" dir="ltr">${_enNum(uiData.totalOrdersCount)} طلب</span>
+                        </div>
                     </div>
                 </div>
                 
-                <div class="mt-15 text-center">
+                <div class="text-center">
                     <button class="btn btn-ghost w-100 text-warning fw-bold btn-audit-warning interactive-scale" data-action="audit-user-wallet" data-id="${safeUid}">
                         <i class="fa-solid fa-scale-balanced me-1"></i> تدقيق ومطابقة السجلات المالية
                     </button>
-                    <div class="fs-11 text-muted text-center mt-5">استخدم هذا الخيار فقط إذا لاحظت اختلافاً بين مدفوعات العميل الفعلية والإحصائيات.</div>
+                    <small class="text-muted d-block mt-5 fs-11">استخدم التدقيق فقط إذا لاحظت اختلافاً بين إيداعات العميل وإحصائياته.</small>
                 </div>
             </div>
             
+            <!-- 🌟 تبويب 3: الطلبات -->
             <div id="tab-orders" class="ud-tab-content">
-                <div class="ud-section-header ud-header-clean mt-5 mb-15 ud-header-flex">
-                    <h3 class="ud-section-title"><i class="fa-solid fa-receipt me-1"></i> السجل المالي الشامل للعميل</h3>
-                </div>
-                <div class="sub-tabs-container mb-15 d-flex gap-2 p-5 fh-tabs-container">
-                    <button class="btn btn-compact btn-primary fh-tab flex-1 active interactive-scale" data-target="fh-orders">
-                        <i class="fa-solid fa-box-open me-1"></i> المشتريات
-                    </button>
-                    <button class="btn btn-compact btn-ghost fh-tab flex-1 interactive-scale" data-target="fh-deposits">
-                        <i class="fa-solid fa-wallet me-1"></i> الإيداعات
-                    </button>
-                </div>
-                <div id="user-history-list" class="user-history-list mb-15 custom-scrollbar fh-scroll-list">
-                </div>
-                <div class="text-center">
-                    <button class="btn btn-ghost btn-compact interactive-scale" id="btn-load-more-user-history" data-action="load-more-user-history" data-id="${safeUid}">
-                        <i class="fa-solid fa-angle-down me-1"></i> عرض المزيد (سحابياً)
+                <div class="card mb-15 p-15">
+                    <h3 class="ud-section-title mb-12"><i class="fa-solid fa-receipt text-primary me-1"></i> الحركات المالية للعميل</h3>
+                    <div class="sub-tabs-container fh-tabs-container mb-15 d-flex gap-2 p-8">
+                        <button class="btn btn-compact btn-primary fh-tab flex-1 active interactive-scale" data-target="fh-orders">
+                            <i class="fa-solid fa-box-open me-1"></i> المشتريات
+                        </button>
+                        <button class="btn btn-compact btn-ghost fh-tab flex-1 interactive-scale" data-target="fh-deposits">
+                            <i class="fa-solid fa-wallet me-1"></i> الإيداعات
+                        </button>
+                    </div>
+                    <div id="user-history-list" class="user-history-list mb-15 custom-scrollbar fh-scroll-list"></div>
+                    <button class="btn btn-ghost btn-compact w-100 interactive-scale" id="btn-load-more-user-history" data-action="load-more-user-history" data-id="${safeUid}">
+                        <i class="fa-solid fa-angle-down me-1"></i> عرض المزيد من السجلات
                     </button>
                 </div>
             </div>
             
+            <!-- 🌟 تبويب 4: الأمان والحالة -->
             <div id="tab-security" class="ud-tab-content">
-                <div class="ud-section">
-                    <div class="ud-section-header ud-header-clean"><h3 class="ud-section-title text-danger"><i class="fa-solid fa-user-shield me-1"></i> الأمان والحالة</h3></div>
+                <div class="card mb-15 p-15">
+                    <h3 class="ud-section-title text-danger mb-15"><i class="fa-solid fa-user-shield me-1"></i> حالة الحساب والأمان</h3>
                     
-                    <div class="ud-status-wrapper mt-10"><span class="ud-info-lbl ud-status-lbl">حالة الحساب:</span><div class="ud-status-badge status-badge-${sm.i} text-${sm.c}"><i class="fa-solid fa-${sm.i} me-1"></i> ${sm.t}</div></div>
-                    
-                    <button class="btn btn-ghost mt-10 w-100 text-primary btn-password-reset interactive-scale" data-action="send-password-reset" data-id="${safeUid}">
+                    <div class="ud-info-list mb-15">
+                        <div class="ud-info-row">
+                            <span class="ud-info-lbl"><i class="fa-solid fa-shield-halved"></i> حالة الحساب</span>
+                            <span class="ud-info-val"><span class="v-stat-chip ${sm.c}"><i class="fa-solid fa-${sm.i} me-1"></i> ${sm.t}</span></span>
+                        </div>
+                        <div class="ud-info-row">
+                            <span class="ud-info-lbl"><i class="fa-solid fa-network-wired"></i> عنوان IP الأخير</span>
+                            <span class="ud-info-val font-numeric ud-copyable interactive-scale" dir="ltr" data-action="copy-to-clipboard">${u.lastIp || u.ipAddress || u.ip ? _esc(u.lastIp || u.ipAddress || u.ip) : 'غير متوفر'}</span>
+                        </div>
+                    </div>
+
+                    <button class="btn btn-ghost w-100 text-primary btn-password-reset interactive-scale mb-15" data-action="send-password-reset" data-id="${safeUid}">
                         <i class="fa-solid fa-envelope-open-text me-1"></i> إرسال رابط استعادة كلمة المرور لبريد العميل
                     </button>
-                    
-                    <div class="ud-status-wrapper mt-15"><span class="ud-info-lbl ud-status-lbl">عنوان IP الأخير:</span><span class="num-en ud-copyable font-numeric interactive-scale" dir="ltr" title="انقر للنسخ" data-action="copy-to-clipboard">${u.lastIp || u.ipAddress || u.ip ? _esc(u.lastIp || u.ipAddress || u.ip) : 'غير متوفر'}</span></div>
-                    
-                    <div class="mt-15 p-15 device-prints-box">
-                        <div class="flex-between align-items-center mb-10">
-                            <span class="fs-13 fw-bold text-warning"><i class="fa-solid fa-fingerprint me-1"></i> الأجهزة المسجلة:</span>
+
+                    <!-- 📱 قسم 1: الأجهزة المسجلة الخاصة بهذا العميل فقط -->
+                    <div class="card device-prints-box mb-15 p-12 bg-body">
+                        <div class="flex-between mb-8">
+                            <span class="fs-12 fw-bold text-warning"><i class="fa-solid fa-mobile-screen me-1"></i> بصمات أجهزة العميل المسجلة:</span>
                             <span class="badge-qty font-numeric">${Array.isArray(u.devicePrints) ? u.devicePrints.length : 0} أجهزة</span>
                         </div>
-                        
                         ${Array.isArray(u.devicePrints) && u.devicePrints.length > 0 ? 
-                            `<div class="d-flex flex-wrap gap-2 mb-10">
-                                ${u.devicePrints.map(dp => `<span class="badge-tag num-en fs-10 badge-device-print font-numeric" dir="ltr">${_esc(String(dp).substring(0,8))}...</span>`).join('')}
+                            `<div class="flex-wrap-gap-2">
+                                ${u.devicePrints.map(dp => `<span class="v-stat-chip badge-device-print font-numeric fs-11" dir="ltr"><i class="fa-solid fa-fingerprint me-1"></i> ${_esc(String(dp).substring(0,8))}...</span>`).join('')}
                             </div>` 
-                            : `<div class="text-muted fs-11 mb-10">لم يتم التقاط أي بصمة جهاز لهذا العميل بعد.</div>`
+                            : `<div class="text-muted fs-11">لم تسجل أي بصمة جهاز لهذا العميل بعد.</div>`
                         }
-
-                        <div id="ud-radar-box-target">
-                            ${UsersTemplates.radarBoxContent(uiData.relatedAccounts)}
-                        </div>
                     </div>
 
-                    <div class="ud-actions-col mt-15">
-                        <button class="btn btn-warning interactive-scale" data-action="restrict-user" data-id="${safeUid}"><i class="fa-solid fa-lock me-1"></i> ${u.isRestricted ? 'رفع التقييد' : 'تقييد الحساب (منع الشراء)'}</button>
-                        <button class="btn btn-danger interactive-scale" data-action="ban-user" data-id="${safeUid}"><i class="fa-solid fa-bolt me-1"></i> ${u.isBanned ? 'رفع الحظر' : 'إعدام الحساب والأجهزة سحابياً'}</button>
-                        <button class="btn btn-ghost text-danger interactive-scale" data-action="ban-user-ip" data-id="${safeUid}" data-ip="${_esc(u.lastIp || u.ipAddress || u.ip || '')}"><i class="fa-solid fa-network-wired me-1"></i> ${u.isIpBanned ? 'رفع حظر الـ IP' : 'حظر الـ IP (منع الشبكة)'}</button>
+                    <!-- 🚨 قسم 2: رادار الحسابات المشتركة المستقل بالكامل -->
+                    <div id="ud-radar-box-target" class="mb-15">
+                        ${UsersTemplates.radarBoxContent(uiData.relatedAccounts)}
+                    </div>
+
+                    <!-- أزرار الإجراءات الإدارية الموحدة -->
+                    <h4 class="fs-12 fw-bold text-muted mb-10">إجراءات الحظر والتقييد الإداري:</h4>
+                    <div class="ud-actions-col">
+                        <button class="btn btn-warning interactive-scale" data-action="restrict-user" data-id="${safeUid}">
+                            <i class="fa-solid fa-lock me-1"></i> ${u.isRestricted ? 'رفع التقييد عن الحساب' : 'تقييد الحساب (منع الشراء)'}
+                        </button>
+                        <button class="btn btn-danger interactive-scale" data-action="ban-user" data-id="${safeUid}">
+                            <i class="fa-solid fa-bolt me-1"></i> ${u.isBanned ? 'إلغاء حظر الحساب' : 'إعدام الحساب والأجهزة سحابياً'}
+                        </button>
+                        <button class="btn btn-ghost text-danger interactive-scale" data-action="ban-user-ip" data-id="${safeUid}" data-ip="${_esc(u.lastIp || u.ipAddress || u.ip || '')}">
+                            <i class="fa-solid fa-network-wired me-1"></i> ${u.isIpBanned ? 'رفع حظر الـ IP' : 'حظر الـ IP (منع الشبكة)'}
+                        </button>
                         <div class="ud-divider-dashed"></div>
-                        <button class="btn btn-danger interactive-scale" data-action="delete-user" data-id="${safeUid}"><i class="fa-solid fa-trash me-1"></i> حذف العميل</button>
+                        <button class="btn btn-danger interactive-scale" data-action="delete-user" data-id="${safeUid}">
+                            <i class="fa-solid fa-trash me-1"></i> حذف بيانات الحساب نهائياً
+                        </button>
                     </div>
                 </div>
 
-                <div class="ud-section mt-15">
-                    <div class="ud-section-header ud-header-clean"><h3 class="ud-section-title text-success"><i class="fa-solid fa-passport me-1"></i> بيانات توثيق الهوية (KYC)</h3></div>
-                    <div class="ud-status-wrapper mt-10">
-                        <span class="ud-info-lbl ud-status-lbl">حالة التوثيق:</span>
-                        <div class="ud-status-badge ${kycBadgeObj.c}"><i class="fa-solid fa-${kycBadgeObj.i} me-1"></i> ${kycBadgeObj.t}</div>
+                <!-- كرت التوثيق KYC -->
+                <div class="card mb-15 p-15">
+                    <div class="flex-between mb-10">
+                        <h3 class="ud-section-title text-success m-0"><i class="fa-solid fa-passport me-1"></i> بيانات توثيق الهوية (KYC)</h3>
+                        <span class="v-stat-chip ${kycBadgeObj.c}"><i class="fa-solid fa-${kycBadgeObj.i} me-1"></i> ${kycBadgeObj.t}</span>
                     </div>
                     ${kycDocsHtml}
 
                     ${(u.kycStatus === 'approved' || u.kycStatus === 'pending' || kycDocsHtml !== '') ? `
                     <div class="mt-15 pt-15 border-top-dashed">
-                        <button class="btn btn-danger btn-full interactive-scale" data-action="revoke-kyc" data-id="${safeUid}">
-                            <i class="fa-solid fa-triangle-exclamation me-1"></i> إبطال التوثيق وحذف المستندات (تزوير/مخالفة)
+                        <button class="btn btn-danger w-100 interactive-scale" data-action="revoke-kyc" data-id="${safeUid}">
+                            <i class="fa-solid fa-triangle-exclamation me-1"></i> إبطال التوثيق وحذف المستندات
                         </button>
-                    </div>
-                    ` : ''}
+                    </div>` : ''}
                 </div>
             </div>
 
             ${u.isApiMerchant === true && typeof DeveloperTemplates !== 'undefined' && DeveloperTemplates.developerTabContent 
-                ? DeveloperTemplates.developerTabContent(u) 
-                : ''}
-            `;
+                ? DeveloperTemplates.developerTabContent(u) : ''}
+        `;
     },
-    
+
     tierCard: (t, userCount, tStats = { profit: 0, revenue: 0 }) => {
         const isApiTier = t.type === 'api';
         const tierTypeBadge = isApiTier
-            ? `<span class="tc-badge bg-dark text-warning ms-1"><i class="fa-solid fa-code"></i> مسار API</span>`
-            : `<span class="tc-badge bg-primary-subtle text-primary ms-1"><i class="fa-solid fa-shop"></i> تجزئة (Retail)</span>`;
+            ? `<span class="tc-badge chip-warning ms-1"><i class="fa-solid fa-code"></i> مسار API</span>`
+            : `<span class="tc-badge chip-info ms-1"><i class="fa-solid fa-shop"></i> تجزئة (Retail)</span>`;
 
         return `
         <div id="tier-card-${_esc(t.id)}" class="tier-card interactive-scale ${t.autoAdvance ? 'auto-on' : 'auto-off'}" data-tier-id="${_esc(t.id)}">
@@ -389,7 +465,7 @@ export const UsersTemplates = {
                     <div class="tc-icon-box"><i class="${_getIcon(t.icon, 'fa-user')}"></i></div>
                     <div class="tc-name">
                         <h2>${_esc(t.name || t.id)}</h2>
-                        <div class="d-flex align-items-center flex-wrap gap-1 mt-1">
+                        <div class="flex-wrap-gap-2 mt-5">
                             ${t.isDefault ? '<span class="tc-badge">افتراضي</span>' : ''}
                             ${tierTypeBadge}
                         </div>
@@ -412,10 +488,14 @@ export const UsersTemplates = {
                 
                 <div class="toggle-box tc-toggle-row">
                     <span class="toggle-lbl">الانتقال التلقائي</span>
-                    <label class="switch interactive-scale">
-                        <input type="checkbox" ${t.autoAdvance ? 'checked' : ''} data-action="toggle-tier-auto" data-id="${_esc(t.id)}">
-                        <span class="slider"></span>
-                    </label>
+                    ${isApiTier ? `
+                        <span class="v-stat-chip chip-warning fs-10"><i class="fa-solid fa-lock me-1"></i> مجمد إجبارياً (API)</span>
+                    ` : `
+                        <label class="switch interactive-scale">
+                            <input type="checkbox" ${t.autoAdvance !== false ? 'checked' : ''} data-action="toggle-tier-auto" data-id="${_esc(t.id)}">
+                            <span class="slider"></span>
+                        </label>
+                    `}
                 </div>
             </div>
             <div class="tc-foot">
@@ -440,7 +520,7 @@ export const UsersTemplates = {
             <div class="tic-icon-box"><i class="fa-solid fa-user"></i></div>
             <div class="tic-info"><h3 id="tier-name">المستوى</h3><div class="tier-stats"></div></div>
         </div>
-        <div id="tier-users-container" class="tier-users-grid"></div>
+        <div id="tier-users-container" class="tier-users-table"></div>
     `,
     
     tierInfoStats: (tier, tStats = { profit: 0, revenue: 0 }) => `
@@ -462,7 +542,7 @@ export const UsersTemplates = {
         const safeName = _esc(RenderHelpers._getTxName(u));
         const fallbackChar = safeName && safeName !== '---' ? safeName.charAt(0) : '?';
         const exactStatus = u.isBanned ? 'banned' : (u.isRestricted ? 'restricted' : 'active');
-        const tierColor = tier.color || 'var(--primary)';
+        const safePct = Math.max(0, Math.min(100, Number(pct) || 0));
 
         const userImg = u.profileImage || u.img;
         const avatarHtml = `
@@ -493,16 +573,16 @@ export const UsersTemplates = {
                     <div class="tuc-progress-wrapper">
                         <div class="tuc-progress-info">
                             <div class="prog-item"><span class="p-lbl">المدفوع</span><span class="p-val num-en font-numeric" dir="ltr" lang="en">${RenderHelpers.formatMoney(spent, 'USD', 2)}</span></div>
-                            <div class="prog-item text-end"><span class="p-lbl">الهدف (${_esc(nextTierName || 'التالي')})</span><span class="p-val num-en text-info font-numeric" dir="ltr" lang="en">${RenderHelpers.formatMoney(target, 'USD', 2)}</span></div>
+                            <div class="prog-item"><span class="p-lbl">الهدف (${_esc(nextTierName || 'التالي')})</span><span class="p-val num-en text-info font-numeric" dir="ltr" lang="en">${RenderHelpers.formatMoney(target, 'USD', 2)}</span></div>
                         </div>
                         <div class="tuc-progress-bar-container">
-                            <div class="tuc-bar-bg"><div class="tuc-bar-fill" style="width: ${pct}%; background: ${tierColor}; box-shadow: 0 0 10px ${tierColor}60;"></div></div>
-                            <span class="tuc-pct-badge num-en font-numeric" dir="ltr" lang="en">${pct}%</span>
+                            <div class="tuc-bar-bg"><div class="tuc-bar-fill" style="width: ${safePct}%;"></div></div>
+                            <span class="tuc-pct-badge num-en font-numeric" dir="ltr" lang="en">${safePct}%</span>
                         </div>
                     </div>
                 ` : `
-                    <div class="tuc-status-box status-achieved" style="border-color: ${tierColor}; background:${tierColor}08;">
-                        <div class="status-label-main" style="color: ${tierColor};"><i class="fa-solid fa-trophy me-1"></i> محقق للشرط المالي</div>
+                    <div class="tuc-status-box status-achieved">
+                        <div class="status-label-main"><i class="fa-solid fa-trophy me-1"></i> محقق للشرط المالي</div>
                     </div>
                 `}
             </div>
@@ -532,14 +612,12 @@ export const UsersTemplates = {
         
         let tierName = 'عادي (افتراضي)'; 
         let tierIcon = 'fa-solid fa-user'; 
-        let tierColor = 'var(--text-muted)';
         
         if (AdminData && AdminData.data && AdminData.data.tiersMap) {
             const tierObj = AdminData.data.tiersMap[user.tierId];
             if (tierObj) { 
                 tierName = _esc(tierObj.nameAr || tierObj.name); 
                 tierIcon = _getIcon(tierObj.icon, 'fa-user'); 
-                tierColor = tierObj.color || 'var(--gold)'; 
             }
         }
         
@@ -590,11 +668,11 @@ export const UsersTemplates = {
                 ${avatarHtml}
                 <div class="kyc-req-user-info">
                     <h4>${safeName}</h4>
-                    <div class="d-flex align-items-center gap-2 mt-1">
+                    <div class="flex-align-center gap-2 mt-5">
                         <div class="uid-capsule m-0 uid-capsule-flat font-numeric" dir="ltr">
                             ${RenderHelpers.formatUserId(user)}
                         </div>
-                        <span class="fs-11 fw-bold kyc-tier-badge" style="color: ${tierColor};">
+                        <span class="fs-11 fw-bold text-gold kyc-tier-badge">
                             <i class="${tierIcon} me-1"></i> ${tierName}
                         </span>
                     </div>
@@ -611,7 +689,7 @@ export const UsersTemplates = {
                         <span class="kyc-data-val">${_esc(kycFullName)}</span>
                     </div>
                     <div class="kyc-data-row">
-                        <span class="kyc-data-lbl"><i class="fa-solid fa-fingerprint"></i> رقم الهوية/الجواز:</span>
+                        <span class="kyc-data-lbl"><i class="fa-solid fa-passport"></i> رقم الهوية/الجواز:</span>
                         <span class="kyc-data-val num-en font-numeric" dir="ltr">${_esc(kycIdNumber)}</span>
                     </div>
                 </div>
@@ -646,19 +724,19 @@ export const UsersTemplates = {
         const securityPolicy = settings.securityPolicy || { forceBiometrics: false, force2FA: false };
         
         let tiersHtml = `
-        <div id="kyc-tiers-selection" class="mt-4 animate__animated animate__fadeIn ${!isSpec ? 'hide-element' : ''}">
-            <h6 class="mb-3 fw-bold text-main">تحديد المستويات المستهدفة بالتوثيق:</h6>
-            <div class="tiers-selection-list d-grid gap-2">
+        <div id="kyc-tiers-selection" class="mt-15 ${!isSpec ? 'hide-element' : ''}">
+            <h6 class="mb-10 fs-13 fw-bold text-main">تحديد المستويات المستهدفة بالتوثيق:</h6>
+            <div class="tiers-selection-list d-flex flex-column gap-2">
                  ${tiers.map(t => {
                     const isTargeted = (config.targetedTiers || []).map(id => String(id)).includes(String(t.id));
                     const safeIcon = _getIcon(t.icon, 'fa-medal');
                     return `
                     <div class="tier-kyc-item interactive-scale">
-                        <div class="d-flex align-items-center gap-3 flex-1 overflow-hidden">
-                            <i class="${safeIcon} fs-5" style="color: ${t.color || 'var(--gold)'}; flex-shrink: 0;"></i>
-                            <span class="fw-bold text-truncate text-main">${_esc(t.nameAr || t.name)}</span>
+                        <div class="kyc-policy-content">
+                            <i class="${safeIcon} kyc-policy-icon text-gold"></i>
+                            <span class="fw-bold text-main fs-13">${_esc(t.nameAr || t.name)}</span>
                         </div>
-                        <label class="switch m-0 flex-shrink-0 interactive-scale">
+                        <label class="switch interactive-scale">
                             <input type="checkbox" data-action="toggle-kyc-tier" data-id="${_esc(t.id)}" ${isTargeted ? 'checked' : ''}>
                             <span class="slider"></span>
                         </label>
@@ -670,7 +748,7 @@ export const UsersTemplates = {
         return `
         <div class="kyc-dashboard-card mb-15 border-success-30">
             <div class="kyc-master-switch-box">
-                <h5 class="fw-bold text-main mb-15"><i class="fa-solid fa-id-card text-primary me-1"></i> وضع توثيق الهوية (KYC) الحالي:</h5>
+                <h5 class="fw-bold text-main fs-14 mb-15"><i class="fa-solid fa-id-card text-primary me-1"></i> وضع توثيق الهوية (KYC) الحالي:</h5>
                 <div class="kyc-mode-grid">
                     <div class="kyc-mode-btn off-mode interactive-scale ${mode === 'off' ? 'active' : ''}" data-action="update-kyc-mode" data-mode="off">
                         <i class="fa-solid fa-power-off"></i> إيقاف التوثيق
@@ -687,33 +765,33 @@ export const UsersTemplates = {
         </div>
         
         <div class="kyc-dashboard-card mb-15 border-success-30">
-            <div class="kyc-master-switch-box">
-                <h5 class="fw-bold text-success mb-5"><i class="fa-solid fa-fingerprint me-1"></i> سياسات الأمان الإلزامية للمتجر</h5>
+            <div class="kyc-master-switch-box mb-0">
+                <h5 class="fw-bold text-success fs-14 mb-5"><i class="fa-solid fa-fingerprint me-1"></i> سياسات الأمان الإلزامية للمتجر</h5>
                 <p class="text-muted fs-12 mb-15">تفعيل هذه الخيارات سيمنع العميل من الشراء أو الإيداع حتى يقوم بتفعيلها في جهازه.</p>
                 
                 <div class="tier-kyc-item mb-10 bg-body interactive-scale">
-                    <div class="d-flex align-items-center gap-3 flex-1 overflow-hidden">
-                        <i class="fa-solid fa-fingerprint fs-4 text-primary flex-shrink-0"></i>
-                        <div>
-                            <div class="fw-bold text-main fs-14">إجبار العملاء على تفعيل البصمة الحيوية</div>
+                    <div class="kyc-policy-content">
+                        <i class="fa-solid fa-fingerprint kyc-policy-icon text-primary"></i>
+                        <div class="flex-1">
+                            <div class="fw-bold text-main fs-13 mb-5">إجبار العملاء على تفعيل البصمة الحيوية</div>
                             <div class="fs-11 text-muted">تقييد عمليات الشراء لمن لم يفعل خيار البصمة</div>
                         </div>
                     </div>
-                    <label class="switch m-0 flex-shrink-0 interactive-scale">
+                    <label class="switch interactive-scale">
                         <input type="checkbox" id="policy-force-bio" ${securityPolicy.forceBiometrics ? 'checked' : ''}>
                         <span class="slider"></span>
                     </label>
                 </div>
                 
-                <div class="tier-kyc-item bg-body interactive-scale">
-                    <div class="d-flex align-items-center gap-3 flex-1 overflow-hidden">
-                        <i class="fa-solid fa-shield-halved fs-4 text-warning flex-shrink-0"></i>
-                        <div>
-                            <div class="fw-bold text-main fs-14">إجبار العملاء على المصادقة الثنائية (2FA)</div>
+                <div class="tier-kyc-item mb-0 bg-body interactive-scale">
+                    <div class="kyc-policy-content">
+                        <i class="fa-solid fa-shield-halved kyc-policy-icon text-warning"></i>
+                        <div class="flex-1">
+                            <div class="fw-bold text-main fs-13 mb-5">إجبار العملاء على المصادقة الثنائية (2FA)</div>
                             <div class="fs-11 text-muted">تقييد عمليات الشراء لمن لم يفعل المصادقة الثنائية</div>
                         </div>
                     </div>
-                    <label class="switch m-0 flex-shrink-0 interactive-scale">
+                    <label class="switch interactive-scale">
                         <input type="checkbox" id="policy-force-2fa" ${securityPolicy.force2FA ? 'checked' : ''}>
                         <span class="slider"></span>
                     </label>
@@ -722,8 +800,8 @@ export const UsersTemplates = {
         </div>
 
         <div class="kyc-save-btn-wrap">
-            <button class="btn btn-primary px-5 fw-bold interactive-scale" data-action="save-kyc">
-                حفظ إعدادات الأمان والتوثيق
+            <button class="btn btn-primary w-100 fw-bold interactive-scale" data-action="save-kyc">
+                <i class="fa-solid fa-floppy-disk me-1"></i> حفظ إعدادات الأمان والتوثيق
             </button>
         </div>`; 
     },
@@ -735,7 +813,6 @@ export const UsersTemplates = {
         
         const isCurrentApi = currentTier && currentTier.type === 'api';
         const overrideAttributes = isCurrentApi ? 'checked disabled' : (u.manualTierOverride ? 'checked' : '');
-        const opacityStyle = isCurrentApi ? 'opacity: 0.6; cursor: not-allowed;' : '';
 
         const listHtml = tiers.map(tier => {
             const isCurrent = String(tier.id) === String(u.tierId);
@@ -753,14 +830,13 @@ export const UsersTemplates = {
             
             <div id="tier-selection-list" class="tsm-list-container">${listHtml}</div>
             
-            <div class="tsm-override-box mt-10 p-10 bg-body rounded border" style="${opacityStyle}" id="tier-override-container">
-                <label class="d-flex align-items-center gap-2 m-0 ${isCurrentApi ? '' : 'cursor-pointer interactive-scale'}">
-                    <input type="checkbox" id="tier-manual-override" class="form-check-input" ${overrideAttributes}>
+            <div class="tsm-override-box ${isCurrentApi ? 'disabled' : ''}" id="tier-override-container">
+                <label class="flex-align-center gap-2 m-0 ${isCurrentApi ? '' : 'interactive-scale'}">
+                    <input type="checkbox" id="tier-manual-override" class="tree-checkbox" ${overrideAttributes}>
                     <span class="fs-12 fw-bold text-main">تثبيت مستوى العميل يدوياً (منع الترقية والهبوط الآلي)</span>
                 </label>
             </div>
 
-            <!-- 🌟 أزرار موحدة (نص فقط) -->
             <div class="modal-actions-row mt-15 pt-15 border-top-solid">
                 <button type="button" class="btn btn-primary interactive-scale" data-action="confirm-tier-selection">تأكيد</button>
                 <button type="button" class="btn btn-outline-danger interactive-scale" data-action="close-tier-selection">إلغاء</button>
@@ -770,18 +846,18 @@ export const UsersTemplates = {
 
     tierOptionItem: (tier, isCurrent, safeName, safeIcon) => {
         const typeLabel = tier.type === 'api' 
-            ? '<span class="badge bg-dark text-warning fs-10 ms-1" style="vertical-align: middle;"><i class="fa-solid fa-code"></i> مسار API</span>' 
+            ? '<span class="v-stat-chip chip-warning fs-10 ms-1"><i class="fa-solid fa-code"></i> مسار API</span>' 
             : '';
 
         return `
-        <div class="tier-option interactive-scale ${isCurrent ? 'current' : ''}" data-tier-id="${_esc(tier.id)}" data-action="select-tier-option">
-            <div class="flex-center-gap-10">
+        <div class="tier-option interactive-scale ${isCurrent ? 'selected current' : ''}" data-tier-id="${_esc(tier.id)}" data-action="select-tier-option">
+            <div class="tier-option-inner">
                 <div class="tc-icon-box-sm"><i class="${safeIcon}"></i></div>
-                <div>
+                <div class="flex-1">
                     <div class="tsm-tier-name">${safeName} ${typeLabel}</div>
                     <div class="tsm-tier-meta font-numeric" dir="ltr" lang="en">نسبة الربح: %${_enNum(tier.profitPercent||0, 2)} | شرط: ${RenderHelpers.formatMoney(tier.threshold||0, 'USD', 2)}</div>
                 </div>
-                ${isCurrent ? '<i class="fa-solid fa-check tsm-check-icon"></i>' : ''}
+                <i class="fa-solid fa-check tsm-check-icon"></i>
             </div>
         </div>`;
     },
@@ -795,7 +871,7 @@ export const UsersTemplates = {
             <label class="form-label">البريد الإلكتروني</label>
             <input type="email" id="user-edit-email" class="form-input num-en font-numeric" dir="ltr" lang="en" value="${_esc(u.email || '')}">
         </div>
-        <div class="d-flex gap-2 flex-wrap">
+        <div class="flex-wrap-gap-2">
             <div class="form-group flex-1">
                 <label class="form-label">رقم الهاتف</label>
                 <input type="text" id="user-edit-phone" class="form-input num-en font-numeric" dir="ltr" lang="en" value="${_esc(u.phone || '')}">
@@ -806,31 +882,40 @@ export const UsersTemplates = {
             </div>
         </div>
         
-        <!-- 🌟 أزرار موحدة (نص فقط) -->
         <div class="modal-actions-row mt-15 pt-15 border-top-solid">
             <button type="button" class="btn btn-primary interactive-scale" data-action="save-user-edits" data-id="${_esc(u.id)}">حفظ</button>
             <button type="button" class="btn btn-outline-danger interactive-scale" data-action="close-user-edit">إلغاء</button>
         </div>
     `,
 
-    // ==========================================
-    // 📦 النوافذ المسحوبة من الـ HTML لبنائها ديناميكياً (Modals Migration)
-    // ==========================================
-
     userDetailModal: (u, uiData) => `
-        <div class="modal-content ud-modal-pro">
-            <div class="ud-modal-header">
-                <div class="modal-close-btn interactive-scale" data-action="close-modal"><i class="fa-solid fa-xmark"></i></div>
-                <h2 class="main-title" id="ud-title"><i class="fa-solid fa-address-card me-1"></i> ملف العميل الشامل</h2>
+        <div class="modal-content modal-lg prod-modal-lg ud-modal-pro">
+            <div class="modal-close-btn interactive-scale" data-action="close-modal"><i class="fa-solid fa-xmark"></i></div>
+            <h2 class="main-title" id="ud-title"><i class="fa-solid fa-address-card me-1"></i> ملف العميل الشامل</h2>
 
-                <div class="ud-tabs-header">
-                    <button type="button" class="ud-tab-btn interactive-scale active" id="tab-btn-overview" data-action="switch-user-tab" data-tab="overview"><i class="fa-solid fa-id-card me-1"></i> نظرة عامة</button>
-                    <button type="button" class="ud-tab-btn interactive-scale" id="tab-btn-wallet" data-action="switch-user-tab" data-tab="wallet"><i class="fa-solid fa-wallet me-1"></i> المحفظة</button>
-                    <button type="button" class="ud-tab-btn interactive-scale" id="tab-btn-orders" data-action="switch-user-tab" data-tab="orders"><i class="fa-solid fa-box-open me-1"></i> الطلبات</button>
-                    <button type="button" class="ud-tab-btn interactive-scale" id="tab-btn-security" data-action="switch-user-tab" data-tab="security"><i class="fa-solid fa-shield-halved me-1"></i> الأمان</button>
-${ u.isApiMerchant === true ? `<button type="button" class="ud-tab-btn interactive-scale" id="tab-btn-developer" data-action="switch-user-tab" data-tab="developer"><i class="fa-solid fa-code me-1"></i> المطورين</button>` : '' }
-
-</div>            </div>
+            <div class="ud-modal-tabs mb-15">
+                <button type="button" class="ud-tab-btn active interactive-scale" id="tab-btn-overview" data-action="switch-user-tab" data-tab="overview">
+                    <i class="fa-solid fa-id-card"></i>
+                    <span>نظرة عامة</span>
+                </button>
+                <button type="button" class="ud-tab-btn interactive-scale" id="tab-btn-wallet" data-action="switch-user-tab" data-tab="wallet">
+                    <i class="fa-solid fa-wallet"></i>
+                    <span>المحفظة</span>
+                </button>
+                <button type="button" class="ud-tab-btn interactive-scale" id="tab-btn-orders" data-action="switch-user-tab" data-tab="orders">
+                    <i class="fa-solid fa-box-open"></i>
+                    <span>الطلبات</span>
+                </button>
+                <button type="button" class="ud-tab-btn interactive-scale" id="tab-btn-security" data-action="switch-user-tab" data-tab="security">
+                    <i class="fa-solid fa-shield-halved"></i>
+                    <span>الأمان</span>
+                </button>
+                ${ u.isApiMerchant === true ? `
+                <button type="button" class="ud-tab-btn interactive-scale" id="tab-btn-developer" data-action="switch-user-tab" data-tab="developer">
+                    <i class="fa-solid fa-code"></i>
+                    <span>المطورين</span>
+                </button>` : '' }
+            </div>
             
             <div id="ud-body" class="ud-modal-body">
                 ${UsersTemplates.userDetailBody(u, uiData)}
@@ -867,7 +952,7 @@ ${ u.isApiMerchant === true ? `<button type="button" class="ud-tab-btn interacti
 
             <div class="form-group">
                 <label class="form-label text-warning"><i class="fa-solid fa-route me-1"></i> مسار المستوى (نظام التسعير)</label>
-                <select id="t-type" class="form-input select-shared" style="border-color: rgba(245, 158, 11, 0.4);" ${isDefaultTier ? 'disabled title="المستوى الافتراضي مخصص لمسار التجزئة دائماً"' : ''}>
+                <select id="t-type" class="form-input select-shared" ${isDefaultTier ? 'disabled title="المستوى الافتراضي مخصص لمسار التجزئة دائماً"' : ''}>
                     <option value="retail" ${!isApi || isDefaultTier ? 'selected' : ''}>مسار التجزئة (أفراد - يدعم الكوبونات والترقية الآلية)</option>
                     <option value="api" ${isApi && !isDefaultTier ? 'selected' : ''}>مسار الجملة (تجار API - مجمد إجبارياً بدون كوبونات)</option>
                 </select>
@@ -906,7 +991,6 @@ ${ u.isApiMerchant === true ? `<button type="button" class="ud-tab-btn interacti
                 <input type="hidden" id="t-icon" value="fa-user">
             </div>
 
-            <!-- 🚀 بوابات ذكية: إخفاء الشروط للمستوى الافتراضي لأنه مجاني -->
             <div class="tier-compact-grid">
                 <div class="compact-input-group">
                     <label for="t-profit">نسبة الربح %</label>
@@ -931,16 +1015,15 @@ ${ u.isApiMerchant === true ? `<button type="button" class="ud-tab-btn interacti
                 `}
             </div>
 
-            <div class="alert-info mt-15 mb-0 fs-11" style="line-height: 1.6;">
+            <div class="alert-info mt-15 mb-0 fs-11">
                 <i class="fa-solid fa-lightbulb text-warning me-1"></i>
                 ${(tier.id === 'TIER_DEFAULT' || tier.isDefault)
                     ? `<span>هذا هو <b>المستوى الافتراضي الأساسي</b> (شرط الانضمام <b>0$</b> دائماً). يمكنك تعديل نسبة ربحه واسمه وأيقونته بحرية.</span>`
                     : `<span><b>قاعدة الترقية والتسعير:</b> يترقى العميل تلقائياً حسب تصاعد <b>(شرط الترقية $)</b>. كلما زاد شرط المبلغ لمستوى أعلى، يُنصح بتقليل <b>(نسبة الربح %)</b> ليحصل العميل المترقي على سعر أرخص.</span>`
                 }
-                <input type="checkbox" id="t-default" ${(tier.id === 'TIER_DEFAULT' || tier.isDefault) ? 'checked' : ''} hidden>
+                <input type="checkbox" id="t-default" class="hide-element" ${(tier.id === 'TIER_DEFAULT' || tier.isDefault) ? 'checked' : ''}>
             </div>
             
-            <!-- 🌟 أزرار موحدة (نص فقط) -->
             <div class="modal-actions-row mt-15 pt-15 border-top-solid">
                 <button type="button" class="btn btn-primary interactive-scale" data-action="save-tier">
                     <i class="fa-solid fa-floppy-disk me-1"></i> حفظ المستوى

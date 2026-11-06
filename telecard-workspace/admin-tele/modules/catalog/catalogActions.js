@@ -1,10 +1,10 @@
 // ============================================================================
-// 📦 خريطة مسارات الكتالوج (Catalog Actions Router) - Enterprise V20.2 💎
-// 🚀 التحديثات المعمارية (V20.2 - Pause Control & Safe Config State):
-// 1. Pause Sub-Package Route ⏸️: إضافة مسار (toggle-pkg-avail) لإيقاف/تفعيل الباقات الفرعية.
-// 2. Edit Sub-Package Route ✏️: إضافة مسار (edit-pkg) لتعديل الباقات الفرعية مباشرة دون حذفها.
-// 3. Safe Config State 🛡️: إزالة مسح الباقات العشوائي عند تبديل شكل الحقول في (render-prod-config).
-// 4. Tree Fallback Mappings 🌳: توحيد مسارات الشجرة المزدوجة لمعالجة تحديد الأقسام والمنتجات.
+// 📦 خريطة مسارات الكتالوج (Catalog Actions Router) - Enterprise V20.3 💎
+// 🚀 التحديثات المعمارية (V20.3 - Two-Tabs Clean Architecture):
+// 1. Switch Prod Tab Route 🔀: إضافة مسار التبديل لتبويبات نافذة المنتج.
+// 2. Pause Sub-Package Route ⏸️: دعم إيقاف/تفعيل الباقات الفرعية.
+// 3. Edit Sub-Package Route ✏️: دعم تعديل الباقات الفرعية مباشرة.
+// 4. Safe Config State 🛡️: حماية التكوين عند تبديل شكل الحقول.
 // ============================================================================
 
 import { CatalogController } from './catalogController.js';
@@ -14,22 +14,29 @@ import { AdminData } from '../../adminData.js';
 import { EventBus } from '../../adminUtils.js';
 
 export const CatalogActions = {
-  // ==========================================
-  // 📁 1. الملاحة بين الأقسام
-  // ==========================================
-  'enter-folder': (data) => {
-    EventBus.emit('req-update-state', { currFolder: data.enter || data.id });
-    EventBus.emit('req-render-prods');
-  },
-  'cat-back': () => EventBus.emit('req-go-back'),
-  
-  // ==========================================
-  // 🪟 2. النوافذ المنبثقة
-  // ==========================================
-  'open-cat-modal': (data) => AdminUI?.CatalogUI?.openCategoryModal?.(data.id),
-  'open-prod-modal': (data) => CatalogController.openProductModal?.(data.id),
-  'open-country-modal': (data) => AdminUI?.CatalogUI?.openCountryModal?.(data.id),
+// ==========================================
+// 📁 1. الملاحة بين الأقسام
+// ==========================================
+'enter-folder': (data) => {
+  if (AdminUI?.dragEditMode) return;
+  EventBus.emit('req-update-state', { currFolder: data.enter || data.id });
+  EventBus.emit('req-render-prods');
+},
+'cat-back': (data) => {
+  if (AdminUI?.dragEditMode) AdminUI.toggleDragEditMode(data?.originalEvent);
+  EventBus.emit('req-go-back');
+},
+
+// ==========================================
+// 🪟 2. النوافذ المنبثقة
+// ==========================================
+'open-cat-modal': (data) => AdminUI?.CatalogUI?.openCategoryModal?.(data.id),
+  'open-prod-modal': (data) => {
+    if (AdminUI?.dragEditMode && data.element?.classList?.contains('item-box')) return;
+    CatalogController.openProductModal?.(data.id);
+  },  'open-country-modal': (data) => AdminUI?.CatalogUI?.openCountryModal?.(data.id),
   'open-vault-modal': (data) => AdminUI?.CatalogUI?.openVaultModal?.(data.id),
+  'switch-prod-tab': (data) => AdminUI?.CatalogUI?.switchProdTab?.(data.tab),
   
   // ==========================================
   // 💾 3. عمليات الحفظ والحذف

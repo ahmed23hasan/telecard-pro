@@ -1,12 +1,11 @@
 // ============================================================================
-// 🧠 متحكم الكتالوج (modules/catalog/catalogController.js) - Cloud-Native V20.2 💎
+// 🧠 متحكم الكتالوج (modules/catalog/catalogController.js) - Cloud-Native V20.6 💎
 // 🎯 الوظيفة: المنطق التجاري للمنتجات، الباقات الفرعية، الأقسام، الدول، وصناديق الخزنة (Vault)
-// 🚀 التحديثات المعمارية (V20.2 - Visibility, Pause Control & Sub-Package Integrity):
-// 1. Visibility & Pause Status 👁️: دعم isManuallyPaused و isActive مع منع إعادة التفعيل التلقائي من السيرفر.
-// 2. Sub-Package Vault Unbind Fix 🔓: إصلاح خطأ استمرار stockCount: 0 عند فك ارتباط الخزنة.
-// 3. Raw String Preservation 💾: إزالة escapeHTML المسبق من الأسماء لمنع تشوه النصوص.
-// 4. Unified Schema Parity 🔗: توحيد (categoryId, img/image, order/sortOrder, minQty/maxQty) مع السيرفر.
-// 5. Single-Supplier & Unique-Vault Guard 🛡️: منع تعدد الموردين ومنع مشاركة الخزنة بين باقتين.
+// 🚀 التحديثات المعمارية:
+// 1. Single Price Preview Flow ⚡: إزالة الاستدعاءات التكرارية لمعاينة الأسعار وتهيئة الحقول في openProductModal والاعتماد على دورة حياة النافذة الموحدة.
+// 2. Direct Pre-Compressed Image Upload 🖼️: استخدام الصورة الجاهزة المضغوطة مسبقاً في AdminUI.tempImg عبر base64ToBlob مباشرة دون تكرار المعالجة مع الحفاظ على مؤشر التحميل (Loader).
+// 3. Complete State & DOM Cleanup 🧹: تصفير AdminUI.tempImg و AdminUI.tempFile وحقول الملفات فور اكتمال الحفظ لمنع تسرب الصور للعمليات التالية.
+// 4. Sub-Package Vault & Pause Integrity 🛡️: الحفاظ على فصل الخزائن وحالات الإيقاف المؤقت (isManuallyPaused) ومنع تضارب الموردين.
 // ============================================================================
 
 import { AdminData } from '../../adminData.js';
@@ -44,11 +43,8 @@ export const CatalogController = {
             : [];
         EventBus.emit('req-update-state', { tempPackages: this.tempPackages });
         
-        // 🚀 بناء نافذة المنتج ديناميكياً وتعبئة الحقول أولاً
         AdminUI?.CatalogUI?.openProductModal?.(strId);
-        AdminRender?.renderProdConfig?.();
         AdminRender?.renderPkgList?.();
-        this.updatePricePreview();
     },
 
     updatePricePreview: function() {
@@ -118,7 +114,6 @@ export const CatalogController = {
     saveProd: async function() {
         if (this._actionLocks.has('save-prod')) return;
 
-        // 🛡️ التحديث المطلوب: حفظ النص النظيف بدون التشفير المزدوج
         const name = Utils.getVal('pr-name').trim();
         const type = Utils.getVal('pr-type') || 'simple';
         const supplierId = (Utils.getVal('pr-supplier') || '').trim();
@@ -126,15 +121,21 @@ export const CatalogController = {
         const vaultPoolId = (Utils.getVal('pr-vault') || '').trim();
         const tempEditId = AdminData.tempEditId;
         
-        if (!name) return EventBus.emit('req-show-toast', { message: 'يرجى إدخال اسم المنتج', type: 'error' });
+        if (!name) {
+            AdminUI?.CatalogUI?.switchProdTab?.('prod-tab-data');
+            setTimeout(() => document.getElementById('pr-name')?.focus(), 50);
+            return EventBus.emit('req-show-toast', { message: '⚠️ حقل مطلوب: يرجى إدخال اسم المنتج أولاً.', type: 'warning' });
+        }
 
         if (supplierId && vaultPoolId) {
+            AdminUI?.CatalogUI?.switchProdTab?.('prod-tab-data');
             return EventBus.emit('req-show-toast', { message: 'لا يمكن ربط المنتج بمورد خارجي وخزنة محلية في نفس الوقت.', type: 'error' });
         }
 
         if (vaultPoolId && type !== 'select') {
             const vConflict = this._checkVaultConflictAcrossStore(vaultPoolId, tempEditId, -1);
             if (vConflict) {
+                AdminUI?.CatalogUI?.switchProdTab?.('prod-tab-data');
                 return EventBus.emit('req-show-toast', { message: `⚠️ تعارض خزنة: ${vConflict}`, type: 'error' });
             }
         }
@@ -146,9 +147,17 @@ export const CatalogController = {
         const minMarginFactor = 1 + (FinancialEngine.CONFIG.MIN_MARGIN_PERCENT / 100);
 
         if (type === 'select') {
-            if (this.tempPackages.length === 0) {
-                return EventBus.emit('req-show-toast', { message: 'يرجى إضافة باقة فرعية واحدة على الأقل للمنتج المتعدد.', type: 'error' });
+            const pendingPkgName = Utils.getVal('pkg-name').trim();
+            const pendingPkgCost = parseFloat(Utils.getVal('pkg-price')) || 0;
+            if (pendingPkgName && (pendingPkgCost > 0 || supplierId)) {
+                this.addPackage();
             }
+            if (this.tempPackages.length === 0) {
+                AdminUI?.CatalogUI?.switchProdTab?.('prod-tab-data');
+                setTimeout(() => document.getElementById('pkg-name')?.focus(), 50);
+                return EventBus.emit('req-show-toast', { message: '⚠️ حقل مطلوب: يرجى إضافة باقة فرعية واحدة على الأقل للمنتج المتعدد.', type: 'warning' });
+            }
+
             const usedPkgVaults = new Set();
             for (let i = 0; i < this.tempPackages.length; i++) {
                 const pkg = this.tempPackages[i];
@@ -183,22 +192,30 @@ export const CatalogController = {
             }
         } else {
             if (rawCost <= 0 && !supplierId) {
-                return EventBus.emit('req-show-toast', { message: 'لا يمكن أن تكون التكلفة 0$ للمنتجات المحلية.', type: 'error' });
+                AdminUI?.CatalogUI?.switchProdTab?.('prod-tab-data');
+                setTimeout(() => document.getElementById('pr-cost')?.focus(), 50);
+                return EventBus.emit('req-show-toast', { message: '⚠️ حقل مطلوب: لا يمكن أن تكون التكلفة 0$ للمنتجات المحلية.', type: 'error' });
             }
             if (rawCost > MAX_PRICE_LIMIT) {
+                AdminUI?.CatalogUI?.switchProdTab?.('prod-tab-data');
+                setTimeout(() => document.getElementById('pr-cost')?.focus(), 50);
                 return EventBus.emit('req-show-toast', { message: `مرفوض: التكلفة تتجاوز الحد الأقصى الآمن (${MAX_PRICE_LIMIT}$).`, type: 'error' });
             }
             if (isFixed) {
                 if (rawFixedVal <= 0) {
-                    return EventBus.emit('req-show-toast', { message: 'يرجى إدخال قيمة السعر الثابت بالدولار.', type: 'error' });
+                    AdminUI?.CatalogUI?.switchProdTab?.('prod-tab-data');
+                    setTimeout(() => document.getElementById('pr-fixed-val')?.focus(), 50);
+                    return EventBus.emit('req-show-toast', { message: '⚠️ حقل مطلوب: يرجى إدخال قيمة السعر الثابت بالدولار.', type: 'error' });
                 }
                 if (rawCost > 0) {
                     const sanitizeUnit = type === 'counter' ? FinancialEngine._internalSanitize : FinancialEngine.sanitizeAmount;
                     const minSafeFixed = sanitizeUnit(rawCost * minMarginFactor);
                     if (rawFixedVal < minSafeFixed) {
+                        AdminUI?.CatalogUI?.switchProdTab?.('prod-tab-data');
+                        setTimeout(() => document.getElementById('pr-fixed-val')?.focus(), 50);
                         return EventBus.emit('req-show-toast', { message: `السعر الثابت المدخل (${rawFixedVal}$) أقل من التكلفة أو يكسر هامش الأمان! الحد الأدنى المسموح هو ${minSafeFixed}$`, type: 'error' });
                     }
-                }            
+                }
             }
         }
 
@@ -215,37 +232,31 @@ export const CatalogController = {
             let finalImg = oldImg || '';
             if (hasImg) {
                 const fileInput = document.getElementById('pr-img-input');
-                const fileToUpload = fileInput?.files?.[0];
+                const rawFile = fileInput?.files?.[0];
+                const readyBase64 = (AdminUI?.tempImg && AdminUI.tempImg.startsWith('data:image'))
+                    ? AdminUI.tempImg
+                    : null;
 
-                if (fileToUpload) {
-                    EventBus.emit('req-show-toast', { message: 'جاري ضغط ومعالجة صورة المنتج...', type: 'info' });
-                    
-                    const compressedBase64 = await new Promise(resolve => {
-                        if (UIService && UIService.processImage) UIService.processImage(fileToUpload, resolve);
-                        else resolve(null);
-                    });
-
-                    let fileForUpload = fileToUpload;
-                    if (compressedBase64 && compressedBase64.startsWith('data:image')) {
-                        const mimeMatch = compressedBase64.match(/^data:(image\/[a-zA-Z0-9+.-]+);base64,/);
-                        const mimeType = mimeMatch ? mimeMatch[1] : (fileToUpload.type || 'image/jpeg');
-                        const byteString = atob(compressedBase64.split(',')[1]);
-                        const ab = new ArrayBuffer(byteString.length);
-                        const ia = new Uint8Array(ab);
-                        for (let i = 0; i < byteString.length; i++) ia[i] = byteString.charCodeAt(i);
-                        const blob = new Blob([ab], { type: mimeType });
-                        fileForUpload = new File([blob], fileToUpload.name, { type: mimeType });
+                if (readyBase64 || rawFile) {
+                    let fileForUpload = rawFile;
+                    if (readyBase64 && typeof AdminUI?.base64ToBlob === 'function') {
+                        const mimeMatch = readyBase64.match(/^data:(image\/[a-zA-Z0-9+.-]+);base64,/);
+                        const mimeType = mimeMatch ? mimeMatch[1] : (rawFile?.type || 'image/jpeg');
+                        const ext = mimeType.split('/')[1]?.replace('jpeg', 'jpg') || 'jpg';
+                        const blob = AdminUI.base64ToBlob(readyBase64, mimeType);
+                        if (blob) {
+                            fileForUpload = new File([blob], rawFile?.name || `prod_${Date.now()}.${ext}`, { type: mimeType });
+                        }
                     }
 
-                    // 🚀 [الإصلاح المعماري]: إظهار اللودر للصور
                     if (AdminUI?.toggleLoader) AdminUI.toggleLoader(true, 'جاري رفع صورة المنتج للسحابة...');
                     if (oldImg && typeof FirebaseAdapter.deleteImageByUrl === 'function') {
-                        await FirebaseAdapter.deleteImageByUrl(oldImg).catch(()=>{});
+                        await FirebaseAdapter.deleteImageByUrl(oldImg).catch(() => {});
                     }
                     finalImg = await FirebaseAdapter.uploadImage(fileForUpload, 'products', null, true);
                 }
             } else if (oldImg) {
-                await FirebaseAdapter.deleteImageByUrl(oldImg).catch(()=>{});
+                await FirebaseAdapter.deleteImageByUrl(oldImg).catch(() => {});
                 finalImg = '';
             }
 
@@ -256,12 +267,10 @@ export const CatalogController = {
             let effectiveParentCost = rawCost;
             let fallbackPrice = rawCost;
 
-            // 🚀 [الإصلاح المعماري]: استخراج حالة الإخفاء والإيقاف اليدوي
             const isManualAvailChecked = Utils.getCheck('pr-available', true);
             const isManualActiveChecked = Utils.getCheck('pr-active', true);
             const isManuallyPaused = !isManualAvailChecked;
 
-            // 🛡️ التحديث المطلوب: إصلاح مشكلة `stockCount` ودعم الإيقاف المؤقت (isManuallyPaused)
             if (type === 'select') {
                 normalizedOptions = this.tempPackages.map((pkg, idx) => {
                     const pkgCost = Number(pkg.costPrice ?? pkg.cost_price ?? pkg.price ?? 0);
@@ -307,11 +316,12 @@ export const CatalogController = {
                         isActive: pkg.isActive !== false,
                         isManuallyPaused: isOptManuallyPaused,
                         isAvailable: optAvail,
-    ...(optStock !== null && { stockCount: optStock }),
-    ...(pkg.tierPrices && { tierPrices: pkg.tierPrices }),
-    ...(pkg.badgeText && { badgeText: pkg.badgeText }),
-    ...(pkg.badgeColor && { badgeColor: pkg.badgeColor })
-};                });
+                        ...(optStock !== null && { stockCount: optStock }),
+                        ...(pkg.tierPrices && { tierPrices: pkg.tierPrices }),
+                        ...(pkg.badgeText && { badgeText: pkg.badgeText }),
+                        ...(pkg.badgeColor && { badgeColor: pkg.badgeColor })
+                    };
+                });
 
                 const firstActiveOpt = normalizedOptions.find(o => o && o.isActive !== false) || normalizedOptions[0];
                 if (firstActiveOpt) {
@@ -351,7 +361,6 @@ export const CatalogController = {
                 parentAvail = !isManuallyPaused && normalizedOptions.some(o => o && o.isActive !== false && o.isAvailable !== false);
             }
 
-            // 🛡️ التحديث المطلوب: إزالة `deleteField` وحفظ isManuallyPaused و isActive
             let updatedFields = {
                 id: newProdId, 
                 categoryId: resolvedCategoryId,
@@ -380,8 +389,11 @@ export const CatalogController = {
                 ...(parentStock !== undefined && { stockCount: parentStock })
             };
 
-            const l1 = Utils.getVal('h-lbl1').trim() || 'حقل إدخال';
-            const l2 = Utils.getVal('h-lbl2').trim() || 'كلمة المرور';
+            const defaultLbl1 = ['single', 'counter', 'select'].includes(type) ? 'أدخل رقم اللاعب (ID)' : (type === 'double' ? 'اسم المستخدم / الإيميل' : 'حقل إدخال');
+            const openMock1 = document.getElementById('mock-input-1')?.value?.trim();
+            const openMock2 = document.getElementById('mock-input-2')?.value?.trim();
+            const l1 = openMock1 || Utils.getVal('h-lbl1').trim() || defaultLbl1;
+            const l2 = openMock2 || Utils.getVal('h-lbl2').trim() || 'كلمة المرور';
             
             if (type === 'simple') {
                 const allowQty = Utils.getCheck('pr-allow-qty');
@@ -413,35 +425,60 @@ export const CatalogController = {
             }
 
             let finalProductObj;
+const cleanObsoleteProdFields = (obj) => {
+    delete obj.syncNote;
+    if (type === 'simple') {
+        delete obj.input1Label;
+        delete obj.input2Label;
+        delete obj.options;
+    } else if (type === 'single' || type === 'counter') {
+        delete obj.input2Label;
+        delete obj.allowQty;
+        delete obj.simpleMax;
+        delete obj.options;
+    } else if (type === 'double') {
+        delete obj.allowQty;
+        delete obj.simpleMax;
+        delete obj.options;
+    } else if (type === 'select') {
+        delete obj.input2Label;
+        delete obj.allowQty;
+        delete obj.simpleMax;
+        delete obj.fixedPriceUsd;
+    }
+    if (type === ' select' || !isFixed) {
+        delete obj.fixedPriceUsd;
+    }
+    if (!vaultPoolId || supplierId || type === 'select') {
+        delete obj.stockCount;
+    }
+};
 
-            if (isEdit) {
-                const idx = AdminData.data.prods.findIndex(x => String(x.id) === newProdId);
-                const existingOrder = oldProd?.order ?? oldProd?.sortOrder ?? 0;
-                updatedFields.order = existingOrder;
-                updatedFields.sortOrder = existingOrder;
-                
-                if (idx > -1) {
-                    finalProductObj = { ...AdminData.data.prods[idx], ...updatedFields };
-                    if (type !== 'select') finalProductObj.options = null;
-                    finalProductObj.syncNote = null; 
-                    if (!vaultPoolId || supplierId || type === 'select') finalProductObj.stockCount = null;
-                    AdminData.data.prods[idx] = finalProductObj;
-                } else {
-                    finalProductObj = { ...updatedFields };
-                    if (type !== 'select') delete finalProductObj.options;
-                    AdminData.data.prods.push(finalProductObj);
-                }           
-            } else {
-                const sameCatProds = (AdminData.data.prods || []).filter(p => String(p.categoryId || p.catId) === String(resolvedCategoryId));
-                const nextOrder = sameCatProds.length > 0 ? Math.max(...sameCatProds.map(p => Number(p.order ?? p.sortOrder ?? -1))) + 1 : 0;
-                updatedFields.order = nextOrder;
-                updatedFields.sortOrder = nextOrder;
-                
-                finalProductObj = { ...updatedFields };
-                if (type !== 'select') delete finalProductObj.options;
-                AdminData.data.prods.push(finalProductObj);
-            }
-
+if (isEdit) {
+    const idx = AdminData.data.prods.findIndex(x => String(x.id) === newProdId);
+    const existingOrder = oldProd?.order ?? oldProd?.sortOrder ?? 0;
+    updatedFields.order = existingOrder;
+    updatedFields.sortOrder = existingOrder;
+    
+    if (idx > -1) {
+        finalProductObj = { ...AdminData.data.prods[idx], ...updatedFields };
+        cleanObsoleteProdFields(finalProductObj);
+        AdminData.data.prods[idx] = finalProductObj;
+    } else {
+        finalProductObj = { ...updatedFields };
+        cleanObsoleteProdFields(finalProductObj);
+        AdminData.data.prods.push(finalProductObj);
+    }
+} else {
+    const sameCatProds = (AdminData.data.prods || []).filter(p => String(p.categoryId || p.catId) === String(resolvedCategoryId));
+    const nextOrder = sameCatProds.length > 0 ? Math.max(...sameCatProds.map(p => Number(p.order ?? p.sortOrder ?? -1))) + 1 : 0;
+    updatedFields.order = nextOrder;
+    updatedFields.sortOrder = nextOrder;
+    
+    finalProductObj = { ...updatedFields };
+    cleanObsoleteProdFields(finalProductObj);
+    AdminData.data.prods.push(finalProductObj);
+}
             if (!AdminData.data.prodsMap) AdminData.data.prodsMap = {};
             AdminData.data.prodsMap[finalProductObj.id] = finalProductObj;
 
@@ -459,6 +496,12 @@ export const CatalogController = {
             if (AdminUI?.toggleLoader) AdminUI.toggleLoader(false);
             this.tempPackages = [];
             EventBus.emit('req-update-state', { tempPackages: [] });
+            if (AdminUI) {
+                AdminUI.tempImg = null;
+                AdminUI.tempFile = null;
+            }
+            const fileInput = document.getElementById('pr-img-input');
+            if (fileInput) fileInput.value = '';
         }
     },    
 
@@ -572,7 +615,6 @@ export const CatalogController = {
     saveCat: async function() {
         if (this._actionLocks.has('save-cat')) return;
 
-        // 🛡️ التحديث المطلوب: إزالة التشفير المزدوج عن أسماء الأقسام
         const name = Utils.getVal('c-name').trim();
         if (!name) return EventBus.emit('req-show-toast', { message: 'يرجى إدخال اسم القسم', type: 'warning' });
         
@@ -588,37 +630,31 @@ export const CatalogController = {
             let finalImg = oldImg || '';
             if (hasImg) {
                 const fileInput = document.getElementById('c-img-input');
-                const fileToUpload = fileInput?.files?.[0];
+                const rawFile = fileInput?.files?.[0];
+                const readyBase64 = (AdminUI?.tempImg && AdminUI.tempImg.startsWith('data:image'))
+                    ? AdminUI.tempImg
+                    : null;
 
-                if (fileToUpload) {
-                    EventBus.emit('req-show-toast', { message: 'جاري ضغط ومعالجة صورة القسم...', type: 'info' });
-                    
-                    const compressedBase64 = await new Promise(resolve => {
-                        if (UIService && UIService.processImage) UIService.processImage(fileToUpload, resolve);
-                        else resolve(null);
-                    });
-
-                    let fileForUpload = fileToUpload;
-                    if (compressedBase64 && compressedBase64.startsWith('data:image')) {
-                        const mimeMatch = compressedBase64.match(/^data:(image\/[a-zA-Z0-9+.-]+);base64,/);
-                        const mimeType = mimeMatch ? mimeMatch[1] : (fileToUpload.type || 'image/jpeg');
-                        const byteString = atob(compressedBase64.split(',')[1]);
-                        const ab = new ArrayBuffer(byteString.length);
-                        const ia = new Uint8Array(ab);
-                        for (let i = 0; i < byteString.length; i++) ia[i] = byteString.charCodeAt(i);
-                        const blob = new Blob([ab], { type: mimeType });
-                        fileForUpload = new File([blob], fileToUpload.name, { type: mimeType });
+                if (readyBase64 || rawFile) {
+                    let fileForUpload = rawFile;
+                    if (readyBase64 && typeof AdminUI?.base64ToBlob === 'function') {
+                        const mimeMatch = readyBase64.match(/^data:(image\/[a-zA-Z0-9+.-]+);base64,/);
+                        const mimeType = mimeMatch ? mimeMatch[1] : (rawFile?.type || 'image/jpeg');
+                        const ext = mimeType.split('/')[1]?.replace('jpeg', 'jpg') || 'jpg';
+                        const blob = AdminUI.base64ToBlob(readyBase64, mimeType);
+                        if (blob) {
+                            fileForUpload = new File([blob], rawFile?.name || `cat_${Date.now()}.${ext}`, { type: mimeType });
+                        }
                     }
 
-                    // 🚀 [الإصلاح المعماري]: إظهار اللودر للصور
                     if (AdminUI?.toggleLoader) AdminUI.toggleLoader(true, 'جاري رفع صورة القسم للسحابة...');
                     if (oldImg && typeof FirebaseAdapter.deleteImageByUrl === 'function') {
-                        await FirebaseAdapter.deleteImageByUrl(oldImg).catch(()=>{});
+                        await FirebaseAdapter.deleteImageByUrl(oldImg).catch(() => {});
                     }
                     finalImg = await FirebaseAdapter.uploadImage(fileForUpload, 'categories', null, true);
                 }
             } else if (oldImg) {
-                await FirebaseAdapter.deleteImageByUrl(oldImg).catch(()=>{});
+                await FirebaseAdapter.deleteImageByUrl(oldImg).catch(() => {});
                 finalImg = '';
             }
             
@@ -645,6 +681,12 @@ export const CatalogController = {
         } finally {
             this._actionLocks.delete('save-cat');
             if (AdminUI?.toggleLoader) AdminUI.toggleLoader(false);
+            if (AdminUI) {
+                AdminUI.tempImg = null;
+                AdminUI.tempFile = null;
+            }
+            const fileInput = document.getElementById('c-img-input');
+            if (fileInput) fileInput.value = '';
         }
     },
 
@@ -814,8 +856,6 @@ export const CatalogController = {
         }
 
         const existingPkg = (editIdx >= 0 && editIdx < this.tempPackages.length) ? this.tempPackages[editIdx] : null;
-        
-        // 🚀 [الإصلاح المعماري]: الحفاظ على حالة الإيقاف المؤقت
         const isManuallyPaused = Boolean(existingPkg?.isManuallyPaused === true);
         
         const pkgObj = {
@@ -861,7 +901,6 @@ export const CatalogController = {
         this.updatePricePreview();
     },
 
-    // 🚀 [الإصلاح المعماري]: دالة تبديل حالة التوفر (تفعيل/إيقاف مؤقت)
     togglePackageAvailability: function(index) {
         if (index < 0 || index >= this.tempPackages.length) return;
         const pkg = this.tempPackages[index];
@@ -885,7 +924,18 @@ export const CatalogController = {
         const flagEmoji = Utils.getVal('country-flag').trim();
         const dialCode = Utils.getVal('country-dial').trim();
 
-        if (!nameAr || !code || !dialCode) return EventBus.emit('req-show-toast', { message: 'يرجى تعبئة الحقول الأساسية', type: 'error' });
+        if (!nameAr) {
+            document.getElementById('country-name')?.focus();
+            return EventBus.emit('req-show-toast', { message: '⚠️ حقل مطلوب: يرجى إدخال اسم الدولة', type: 'warning' });
+        }
+        if (!code) {
+            document.getElementById('country-code')?.focus();
+            return EventBus.emit('req-show-toast', { message: '⚠️ حقل مطلوب: يرجى إدخال كود الدولة (ISO)', type: 'warning' });
+        }
+        if (!dialCode) {
+            document.getElementById('country-dial')?.focus();
+            return EventBus.emit('req-show-toast', { message: '⚠️ حقل مطلوب: يرجى إدخال مفتاح الاتصال للدولة', type: 'warning' });
+        }
 
         if (!AdminData.data.countries) AdminData.data.countries = [];
         
@@ -902,10 +952,17 @@ export const CatalogController = {
         if (AdminUI?.toggleLoader) AdminUI.toggleLoader(true, 'جاري التحديث السحابي لبيانات الدولة...');
 
         try {
+            const isoCurrencyMap = {
+                SA: 'SAR', SY: 'SYP', TR: 'TRY', EG: 'EGP', AE: 'AED', KW: 'KWD',
+                QA: 'QAR', BH: 'BHD', OM: 'OMR', JO: 'JOD', IQ: 'IQD', LB: 'LBP',
+                YE: 'YER', LY: 'LYD', TN: 'TND', DZ: 'DZD', MA: 'MAD', SD: 'SDG',
+                US: 'USD', GB: 'GBP', CA: 'CAD', AU: 'AUD'
+            };
             const oldCountry = editId ? AdminData.data.countriesMap?.[editId] || AdminData.data.countries.find(c => String(c.id) === String(editId)) : null;
+            const defaultCurr = isoCurrencyMap[code] || 'USD';
             const newCountry = { 
                 id: editId || code, code, name: nameAr, flag: flagEmoji, dialCode: dialCode, 
-                currency: oldCountry ? (oldCountry.currency || 'USD') : 'USD', 
+                currency: (oldCountry && oldCountry.currency) ? oldCountry.currency : defaultCurr, 
                 phoneLen: parseInt(Utils.getVal('country-phone-len')) || 10, 
                 isActive: Utils.getCheck('country-active'), isBanned: Utils.getCheck('country-banned') 
             };
@@ -955,8 +1012,6 @@ export const CatalogController = {
         if (this._actionLocks.has('save-vault')) return;
 
         const id = Utils.getVal('v-pool-id');
-        
-        // 🛡️ التحديث المطلوب: حفظ اسم الصندوق بالنص الخام (دون escapeHTML)
         const name = Utils.getVal('v-name').trim();
         const unitCostUsd = FinancialEngine.extractNum(Utils.getVal('v-unit-cost', 0));
         const alertLimit = Number(Utils.getVal('v-alert-limit', 5)) || 5;
@@ -1016,7 +1071,6 @@ export const CatalogController = {
                     AdminData.data.vaultMap[finalPoolId] = newPoolObj;
                 }
 
-                // 🔗 مزامنة مخزون وتوفر المنتجات المرتبطة بهذا الصندوق في الذاكرة المحلية لتطابق السيرفر فوراً
                 const updatedVaultStock = Number(AdminData.data.vaultMap[finalPoolId]?.stockCount || 0);
                 if (addedCount > 0 && Array.isArray(AdminData.data.prods)) {
                     let anyProdSynced = false;

@@ -1,8 +1,8 @@
 // ============================================================================
-// 🗺️ خريطة مسارات المطورين (modules/developer/developerActions.js) - V19.7 💎
+// 🗺️ خريطة مسارات المطورين (modules/developer/developerActions.js) - V20.2 💎
 // 🚀 التحديثات المعمارية: 
-// 1. Broken Link Fix 🔗: إصلاح اسم المسار (save-webhook) ليتطابق مع القالب.
-// 2. CSP Compliance 🛡️: إضافة مسار (toggle-password) للتخلص من الـ Inline JS.
+// 1. Single Responsibility 🎯: احتكار معالجة مسارات الـ API والـ Webhooks كمسؤول وحيد.
+// 2. CSP Compliance 🛡️: توجيه أحداث إظهار وإخفاء السر إلى DeveloperUI دون Inline JS.
 // ============================================================================
 
 import { DeveloperController } from './developerController.js';
@@ -12,7 +12,5 @@ export const DeveloperActions = {
     'generate-api-key': (data) => DeveloperController.generateApiKey?.(data.id),
     'revoke-api-key': (data) => DeveloperController.revokeApiKey?.(data.id),
     'save-webhook': (data) => DeveloperController.saveWebhookUrl?.(data.id),
-    
-    // 🚀 المسار الجديد للتحكم البصري النظيف
     'toggle-password-visibility': (data) => AdminUI?.DeveloperUI?.togglePasswordVisibility?.(data.target)
 };

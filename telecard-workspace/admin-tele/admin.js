@@ -3,9 +3,10 @@
 // 🎯 الوظيفة: الربط النهائي، حقن التبعيات، إدارة دورة حياة التطبيق ومراقبة الاتصال
 // 🌟 التحديثات: 
 // 1. 🛡️ [Multi-Tab UX Fix]: استخدام localStorage لتمكين عمل المدير على عدة نوافذ.
-// 2. ⏱️ [Bank-Grade Idle Timeout]: محرك رصد الخمول الصارم (يطرد المدير بعد 10 دقائق).
+// 2. ⏱️ [Bank-Grade Idle Timeout]: محرك رصد الخمول الصارم والذكي (يطرد المدير بعد 10 دقائق).
 // 3. 🔔 [Radar Bypass]: الاستماع الفوري لإشعارات الـ FCM لكسر قفل الشارات وتحديثها.
 // 4. 🧹 [Clean Code]: إزالة الستايلات المدمجة والاعتماد الكلي على ملفات الـ CSS.
+// 5. 🎯 [Event Delegation Fix]: تمرير الكائنات بشكل سليم لمنع تضارب الخصائص وسقوط البيانات.
 // ============================================================================
 
 import { auth } from './core/firebaseAdapter.js';
@@ -26,7 +27,7 @@ const bindDelegatedEvents = () => {
         const target = e.target.closest('[data-action]');
         if (!target) return;
         
-        if (target.tagName === 'SELECT' || (target.tagName === 'INPUT' && !['checkbox', 'radio', 'button', 'submit'].includes(target.type))) {
+        if (target.tagName === 'SELECT' || target.tagName === 'TEXTAREA' || (target.tagName === 'INPUT' && !['checkbox', 'radio', 'button', 'submit'].includes(target.type))) {
             return;
         }
         
@@ -34,44 +35,35 @@ const bindDelegatedEvents = () => {
         const data = { ...target.dataset, element: target, originalEvent: e };
         
         if (target.tagName === 'A' || target.tagName === 'BUTTON') e.preventDefault();
-        EventBus.emit('action-triggered', { action, ...data });
+        EventBus.emit('action-triggered', { ...data, action });
     });
     
     document.addEventListener('input', (e) => {
         const target = e.target.closest('[data-oninput]');
         if (!target) return;
-        EventBus.emit('action-triggered', { action: target.dataset.oninput, val: target.value, element: target });
+        EventBus.emit('action-triggered', { ...target.dataset, action: target.dataset.oninput, val: target.value, element: target, originalEvent: e });
+    });
+    
+    document.addEventListener('keydown', (e) => {
+        if (e.key !== 'Enter') return;
+        const target = e.target.closest('[data-onenter]');
+        if (!target) return;
+        e.preventDefault();
+        EventBus.emit('action-triggered', { ...target.dataset, action: target.dataset.onenter, val: target.value, element: target, originalEvent: e });
     });
     
     document.addEventListener('change', (e) => {
-        // 🚀 [إصلاح حرج 2]: تعديل النطاق ليقبل الحقول النصية (Text Inputs) و (Textarea) استجابة لميزة البحث المباشر
         const target = e.target.closest('[data-onchange], select[data-action], input[data-action]:not([type="checkbox"]):not([type="radio"]):not([type="button"]):not([type="submit"]), textarea[data-action]');
         if (!target) return;
-        EventBus.emit('action-triggered', { action: target.dataset.onchange || target.dataset.action, ...target.dataset, element: target, originalEvent: e, val: target.value });
+        EventBus.emit('action-triggered', { ...target.dataset, action: target.dataset.onchange || target.dataset.action, element: target, originalEvent: e, val: target.value });
     });
 };
-
-/**
+  /**
  * ⏱️ 2. محرك رصد الخمول البنكي (Cross-Tab Idle Tracker)
  */
 const initIdleTimeout = () => {
-    // 🚀 [تحديث أمني]: 10 دقائق من الخمول لإنهاء الجلسة
-    const IDLE_TIMEOUT_MS = 10 * 60 * 1000;
-    let lastUpdate = 0;
-    
-    const updateActivity = () => {
-        const now = Date.now();
-        if (now - lastUpdate > 60000) {
-            localStorage.setItem('telecard_admin_last_activity', now);
-            lastUpdate = now;
-        }
-    };
-    
-    localStorage.setItem('telecard_admin_last_activity', Date.now());
-    
-    ['mousedown', 'mousemove', 'keypress', 'scroll', 'touchstart'].forEach(evt => {
-        document.addEventListener(evt, updateActivity, { passive: true });
-    });
+    const IDLE_TIMEOUT_MS = 10 * 60 * 1000; // 10 دقائق
+    let lastUpdate = Date.now();
     
     const checkIdleNow = () => {
         const lastActivity = parseInt(localStorage.getItem('telecard_admin_last_activity') || '0', 10);
@@ -80,10 +72,30 @@ const initIdleTimeout = () => {
             localStorage.removeItem('telecard_admin_auth');
             localStorage.removeItem('telecard_admin_last_activity');
             EventBus.emit('req-logout');
+            return true;
         }
+        return false;
     };
 
-    setInterval(checkIdleNow, 60000);
+    const updateActivity = () => {
+        const now = Date.now();
+        if (now - lastUpdate > 60000) {
+            // 🛡️ فحص أمني قبل التجديد (يعمل مرة كل دقيقة كحد أقصى فلا يرهق المتصفح مع حركة الماوس)
+            if (checkIdleNow()) return;
+            localStorage.setItem('telecard_admin_last_activity', now.toString());
+            lastUpdate = now;
+        }
+    };
+    
+    if (!checkIdleNow()) {
+        localStorage.setItem('telecard_admin_last_activity', Date.now().toString());
+    }
+    
+    ['mousedown', 'mousemove', 'keypress', 'scroll', 'touchstart'].forEach(evt => {
+        document.addEventListener(evt, updateActivity, { passive: true });
+    });
+
+    setInterval(checkIdleNow, 60000); // فحص دوري كل دقيقة
     document.addEventListener('visibilitychange', () => {
         if (document.visibilityState === 'visible') checkIdleNow();
     });
@@ -115,18 +127,16 @@ const initGlobalProtections = () => {
             AdminUI.showToast('عاد الاتصال بالإنترنت، المزامنة السحابية تعمل الآن.', 'success', 3000);
         }
     });
-    
-    // 🚀 [الإصلاح المعماري 5]: كاسر قفل الشارات اللحظي (Radar Bypass)
-    if ('serviceWorker' in navigator) {
-        navigator.serviceWorker.addEventListener('message', (event) => {
-            console.log("🔔 [Radar] وصل إشعار حقيقي للمتصفح، جاري كسر قفل الشارات وتحديثها...");
-            if (window.AdminRender && typeof window.AdminRender.updateBadges === 'function') {
-                // نمرر true لكسر حاجز الـ 3 دقائق وتحديث الأرقام في القائمة الجانبية فوراً
-                window.AdminRender.updateBadges(true);
-            }
-        });
-    }
-    
+  // 🚀 كاسر قفل الشارات اللحظي (Radar Bypass)
+if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.addEventListener('message', (event) => {
+        if (event.data?.type !== 'RADAR_PUSH_RECEIVED') return;
+        console.log("🔔 [Radar] وصل إشعار حقيقي للمتصفح، جاري كسر قفل الشارات وتحديثها...");
+        if (window.AdminRender && typeof window.AdminRender.updateBadges === 'function') {
+            window.AdminRender.updateBadges(true);
+        }
+    });
+}    
     initIdleTimeout();
 };
 
@@ -140,10 +150,8 @@ const startApp = async () => {
         // =================================================================
         // 🛡️ [تفتيش أمني استباقي]: معالجة فخ إغلاق المتصفح (Offline Idle Trap)
         // =================================================================
-        const lastActivity = parseInt(localStorage.getItem('telecard_admin_last_activity') || '0');
-        
-        // 🚀 [تحديث أمني]: 10 دقائق من الخمول تمنع فتح المتصفح مجدداً
-        const IDLE_TIMEOUT_MS = 10 * 60 * 1000;
+        const lastActivity = parseInt(localStorage.getItem('telecard_admin_last_activity') || '0', 10);
+        const IDLE_TIMEOUT_MS = 10 * 60 * 1000; // 10 دقائق
         
         if (lastActivity > 0 && (Date.now() - lastActivity > IDLE_TIMEOUT_MS)) {
             console.warn("🚨 تنبيه أمني: تم اكتشاف غياب لأكثر من 10 دقائق. جاري تدمير الجلسة...");
@@ -164,7 +172,7 @@ const startApp = async () => {
                     AdminUI.toggleLoader(false);
                 } else {
                     loader.classList.remove('active');
-                    loader.classList.add('hide-element'); // 🚀 [تنظيف الستايلات]: الاعتماد على الكلاس بدلاً من style.display
+                    loader.classList.add('hide-element'); 
                 }
                 if (typeof AdminUI !== 'undefined' && AdminUI.showToast) {
                     AdminUI.showToast('تأخر استجابة السيرفر، يرجى تحديث الصفحة أو فحص الاتصال.', 'error', 8000);
@@ -173,21 +181,22 @@ const startApp = async () => {
         }, 15000);        
         
         window.AdminCalendar = AdminCalendar;
-        
         window.AdminApp = AppController;
-window.AppController = AppController;
-window.AdminData = AdminData;
-window.AdminUI = AdminUI;
+        window.AppController = AppController;
+        window.AdminData = AdminData;
+        window.AdminUI = AdminUI;
 
-console.log("🟢 2. تم حقن الكائنات العالمية (Global Objects).");
+        console.log("🟢 2. تم حقن الكائنات العالمية (Global Objects).");
 
-RenderHelpers.init({
-    get settings() { return AdminData.data?.settings || {}; },
-    get rates() { return AdminData.data?.rates || []; },
-    get offers() { return AdminData.data?.offers || []; },
-    get prods() { return AdminData.data?.prods || []; },
-    isStore: false
-});        initGlobalProtections();
+        RenderHelpers.init({
+            get settings() { return AdminData.data?.settings || {}; },
+            get rates() { return AdminData.data?.rates || []; },
+            get offers() { return AdminData.data?.offers || []; },
+            get prods() { return AdminData.data?.prods || []; },
+            isStore: false
+        });        
+        
+        initGlobalProtections();
         bindDelegatedEvents();
         
         console.log("🟢 3. جاري الاتصال بـ Firebase Auth للتحقق من الجلسة...");
@@ -240,7 +249,7 @@ RenderHelpers.init({
         const loader = document.getElementById('loader') || document.getElementById('loading-screen');
         if (loader) {
             loader.classList.remove('active');
-            setTimeout(() => loader.classList.add('hide-element'), 300); // الاعتماد على الكلاس
+            setTimeout(() => loader.classList.add('hide-element'), 300); 
         }
         
         const alertMsg = "فشل الإقلاع: " + actualErrorMsg;

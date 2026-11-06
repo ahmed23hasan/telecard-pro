@@ -21,7 +21,7 @@
     })();
 </script><script type="module">
     async function bootApp() {
-        const files = [
+        const coreFiles = [
             './core/firebaseAdapter.js',
             './adminUtils.js',
             './adminTemplates.js',
@@ -29,34 +29,44 @@
             './core/renderHelpers.js',
             './core/financialEngine.js',
             './adminUI.js',
-            './core/appController.js',
-            './admin.js'
+            './core/appController.js'
         ];
         
-        for (const file of files) {
-            try {
-                console.log("🟢 جاري تحميل ملف:", file);
-                await import(file);
-            } catch (err) {
-                console.error("🔴 الخطأ في الملف:", file);
-                console.error(err);
-                
-                // عرض الخطأ على الشاشة
-                const esc = (s) => String(s || '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' } [c]));
-const errorScreen = document.getElementById('system-fatal-error');
-if (errorScreen) {
-    errorScreen.classList.remove('hide-element');
-    errorScreen.querySelector('p').innerHTML = `
-                        خطأ في الملف: <b>${esc(file)}</b><br>
-                        الرسالة: ${esc(err.message || 'Syntax Error')}
-                    `;
-}            return; // توقف الإقلاع فوراً
+        const showBootError = (file, err) => {
+            console.error("🔴 الخطأ في الملف:", file, err);
+            const esc = (s) => String(s || '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+            const loader = document.getElementById('loader');
+            if (loader) loader.classList.remove('active');
+            
+            const errorScreen = document.getElementById('system-fatal-error');
+            if (errorScreen) {
+                errorScreen.classList.remove('hide-element');
+                errorScreen.classList.add('active');
+                errorScreen.querySelector('p').innerHTML = `
+                    خطأ في الملف: <b>${esc(file)}</b><br>
+                    الرسالة: ${esc(err?.message || 'Syntax Error')}
+                `;
             }
+        };
+
+        const results = await Promise.all(
+            coreFiles.map(file => import(file).then(() => ({ ok: true, file })).catch(err => ({ ok: false, file, err })))
+        );
+
+        const failed = results.find(r => !r.ok);
+        if (failed) {
+            showBootError(failed.file, failed.err);
+            return;
         }
-        console.log("🚀 تم تحميل كل الملفات بنجاح!");
+
+        try {
+            await import('./admin.js');
+            console.log("🚀 تم تحميل كل الملفات بالتوازي بنجاح!");
+        } catch (err) {
+            showBootError('./admin.js', err);
+        }
     }
-    bootApp();
-</script>    <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@300;400;500;600;700;800;900&family=Tajawal:wght@400;500;700;800;900&family=Inter:wght@400;600;700;800;900&family=Roboto:wght@400;500;700;900&family=Montserrat:wght@500;600;700;800;900&display=swap" rel="stylesheet">
+    bootApp();</script>    <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@300;400;500;600;700;800;900&family=Tajawal:wght@400;500;700;800;900&family=Inter:wght@400;600;700;800;900&family=Roboto:wght@400;500;700;900&family=Montserrat:wght@500;600;700;800;900&display=swap" rel="stylesheet">
     <link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     
@@ -199,8 +209,8 @@ if (errorScreen) {
                     <div class="head-img"><img id="head-avatar"></div>
 
                     <div class="head-info">
-                        <div id="head-name" class="head-admin-name">المدير</div>
-                        <div class="head-admin-role">Admin</div>
+                        <div id="head-name" class="fw-800 text-main">المدير</div>
+                        <div class="fs-10 text-info">Admin</div>
                     </div>
                 </div>
             </div>
@@ -215,42 +225,42 @@ if (errorScreen) {
                 </div>
 
                 <div id="dash-capsules">
-                    <div class="skel-section-header" style="margin-top: 0;">
-                        <div class="skeleton-box skel-header-title" style="width: 160px;"></div>
+                    <div class="skel-section-header mt-0">
+                        <div class="skeleton-box skel-header-title"></div>
                         <div class="skeleton-box skel-header-line"></div>
                     </div>
                     <div class="skel-grid">
-                        <div class="skeleton-box skel-card"><div class="skeleton-box skel-card-icon"></div><div class="skel-card-data"><div class="skeleton-box skel-data-1"></div><div class="skeleton-box skel-data-2"></div></div></div>
-                        <div class="skeleton-box skel-card"><div class="skeleton-box skel-card-icon"></div><div class="skel-card-data"><div class="skeleton-box skel-data-1"></div><div class="skeleton-box skel-data-2"></div></div></div>
+                        <div class="skeleton-box skel-card"><div class="skeleton-box skel-card-icon"></div><div class="skeleton-box skel-card-data"><div class="skeleton-box skel-data-1"></div><div class="skeleton-box skel-data-2"></div></div></div>
+                        <div class="skeleton-box skel-card"><div class="skeleton-box skel-card-icon"></div><div class="skeleton-box skel-card-data"><div class="skeleton-box skel-data-1"></div><div class="skeleton-box skel-data-2"></div></div></div>
                     </div>
 
                     <div class="skel-section-header">
-                        <div class="skeleton-box skel-header-title" style="width: 140px;"></div>
+                        <div class="skeleton-box skel-header-title"></div>
                         <div class="skeleton-box skel-header-line"></div>
                     </div>
                     <div class="skel-grid">
-                        <div class="skeleton-box skel-card" style="grid-column: 1 / -1; height: 95px;"><div class="skeleton-box skel-card-icon"></div><div class="skel-card-data"><div class="skeleton-box skel-data-1"></div><div class="skeleton-box skel-data-2"></div></div></div>
+                        <div class="skeleton-box skel-card skel-card-full"><div class="skeleton-box skel-card-icon"></div><div class="skeleton-box skel-card-data"><div class="skeleton-box skel-data-1"></div><div class="skeleton-box skel-data-2"></div></div></div>
                     </div>
 
                     <div class="skel-section-header">
-                        <div class="skeleton-box skel-header-title" style="width: 150px;"></div>
+                        <div class="skeleton-box skel-header-title"></div>
                         <div class="skeleton-box skel-header-line"></div>
                     </div>
                     <div class="skel-grid">
-                        <div class="skeleton-box skel-card"><div class="skeleton-box skel-card-icon"></div><div class="skel-card-data"><div class="skeleton-box skel-data-1"></div><div class="skeleton-box skel-data-2"></div></div></div>
-                        <div class="skeleton-box skel-card"><div class="skeleton-box skel-card-icon"></div><div class="skel-card-data"><div class="skeleton-box skel-data-1"></div><div class="skeleton-box skel-data-2"></div></div></div>
-                        <div class="skeleton-box skel-card"><div class="skeleton-box skel-card-icon"></div><div class="skel-card-data"><div class="skeleton-box skel-data-1"></div><div class="skeleton-box skel-data-2"></div></div></div>
-                        <div class="skeleton-box skel-card"><div class="skeleton-box skel-card-icon"></div><div class="skel-card-data"><div class="skeleton-box skel-data-1"></div><div class="skeleton-box skel-data-2"></div></div></div>
+                        <div class="skeleton-box skel-card"><div class="skeleton-box skel-card-icon"></div><div class="skeleton-box skel-card-data"><div class="skeleton-box skel-data-1"></div><div class="skeleton-box skel-data-2"></div></div></div>
+                        <div class="skeleton-box skel-card"><div class="skeleton-box skel-card-icon"></div><div class="skeleton-box skel-card-data"><div class="skeleton-box skel-data-1"></div><div class="skeleton-box skel-data-2"></div></div></div>
+                        <div class="skeleton-box skel-card"><div class="skeleton-box skel-card-icon"></div><div class="skeleton-box skel-card-data"><div class="skeleton-box skel-data-1"></div><div class="skeleton-box skel-data-2"></div></div></div>
+                        <div class="skeleton-box skel-card"><div class="skeleton-box skel-card-icon"></div><div class="skeleton-box skel-card-data"><div class="skeleton-box skel-data-1"></div><div class="skeleton-box skel-data-2"></div></div></div>
                     </div>
 
                     <div class="skel-section-header">
-                        <div class="skeleton-box skel-header-title" style="width: 130px;"></div>
+                        <div class="skeleton-box skel-header-title"></div>
                         <div class="skeleton-box skel-header-line"></div>
                     </div>
                     <div class="skel-grid">
-                        <div class="skeleton-box skel-card"><div class="skeleton-box skel-card-icon"></div><div class="skel-card-data"><div class="skeleton-box skel-data-1"></div><div class="skeleton-box skel-data-2"></div></div></div>
-                        <div class="skeleton-box skel-card"><div class="skeleton-box skel-card-icon"></div><div class="skel-card-data"><div class="skeleton-box skel-data-1"></div><div class="skeleton-box skel-data-2"></div></div></div>
-                        <div class="skeleton-box skel-card"><div class="skeleton-box skel-card-icon"></div><div class="skel-card-data"><div class="skeleton-box skel-data-1"></div><div class="skeleton-box skel-data-2"></div></div></div>
+                        <div class="skeleton-box skel-card"><div class="skeleton-box skel-card-icon"></div><div class="skeleton-box skel-card-data"><div class="skeleton-box skel-data-1"></div><div class="skeleton-box skel-data-2"></div></div></div>
+                        <div class="skeleton-box skel-card"><div class="skeleton-box skel-card-icon"></div><div class="skeleton-box skel-card-data"><div class="skeleton-box skel-data-1"></div><div class="skeleton-box skel-data-2"></div></div></div>
+                        <div class="skeleton-box skel-card"><div class="skeleton-box skel-card-icon"></div><div class="skeleton-box skel-card-data"><div class="skeleton-box skel-data-1"></div><div class="skeleton-box skel-data-2"></div></div></div>
                     </div>
                 </div>
 
@@ -272,8 +282,8 @@ if (errorScreen) {
                                 <div class="card-title"><i class="fa-solid fa-bell text-warning me-1"></i> الرادار والتنبيهات</div>
                             </div>
                             <div class="alerts-container" id="dash-smart-alerts">
-                                <div class="skeleton-box" style="height: 65px; border-radius: 12px; margin-bottom: 10px;"></div>
-                                <div class="skeleton-box" style="height: 65px; border-radius: 12px;"></div>
+                                <div class="skeleton-box skel-alert-item mb-10"></div>
+                                <div class="skeleton-box skel-alert-item"></div>
                             </div>
                         </div>
                     </div>
@@ -299,9 +309,12 @@ if (errorScreen) {
     <option value="90days">آخر 90 يوم</option>
     <option value="all">كل الأوقات</option>
 </select>           <button type="button" class="btn btn-compact btn-success interactive-scale" data-action="export-excel" data-type="sales">
-                <i class="fa-solid fa-file-excel me-1"></i> تصدير
-            </button>
-        </div>
+    <i class="fa-solid fa-file-excel me-1"></i> تصدير
+</button>
+<button type="button" class="btn btn-compact btn-ghost interactive-scale" data-action="refresh" data-type="sales">
+    <i class="fa-solid fa-rotate me-1"></i> تحديث
+</button>
+</div>
     </div>
     
     <!-- 📊 2. قسم النبض المالي (الملخص التنفيذي للمبيعات) -->
@@ -360,7 +373,7 @@ if (errorScreen) {
     <div class="sales-tables-grid">
         
         <!-- 🚀 [التحديث والتوحيد المعماري]: استخدام الهيكل القياسي للمتجر (RTL يمين بـ شحطة تلاشي واحدة) -->
-        <div id="sales-podium-wrapper" class="w-100 animate__animated animate__fadeIn">
+        <div id="sales-podium-wrapper" class="w-100">
             <div class="dash-group-header">
                 <h4><i class="fa-solid fa-trophy text-warning"></i> منصة أبطال المبيعات (Top 3)</h4>
                 <div class="group-line"></div>
@@ -414,7 +427,7 @@ if (errorScreen) {
                     <div class="card-title"><i class="fa-solid fa-crown text-warning me-1"></i> إدارة المستويات</div>
                     <button type="button" class="btn btn-primary interactive-scale" data-action="open-tier-edit"><i class="fa-solid fa-plus me-1"></i> مستوى جديد</button>
                 </div>
-                <div class="panel-card mb-15">
+                <div class="card mb-15">
                     <div class="form-group mb-0">
                         <label class="form-label text-danger"><i class="fa-solid fa-comment-slash me-1"></i> رسالة توقف الترقية التلقائية</label>
                         <textarea id="setting-tier-paused-msg" class="form-input" rows="2" placeholder="مثال: نظام الترقية متوقف مؤقتاً، يرجى التواصل مع الإدارة..." data-action="auto-save-settings"></textarea>
@@ -438,9 +451,7 @@ if (errorScreen) {
                     <span>الدول المفعلة ستظهر للعملاء في صفحة التسجيل والإعدادات ليتم فرض نداء الهاتف الصحيح وتنسيقه تلقائياً.</span>
                 </div>
 
-                <div class="cards-grid-container mt-15">
-                    <div id="countries-grid" class="dynamic-cards-grid" style="display: grid; gap: 15px; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));"></div>
-                </div>
+                <div id="countries-grid" class="mt-15"></div>
             </div>
 
             <div id="view-deposits" class="section">
@@ -461,11 +472,10 @@ if (errorScreen) {
 
                 <div class="filter-pro-container">
                     <div class="filter-input-group">
-                        <i class="fa-solid fa-magnifying-glass"></i>
-                        <input type="text" id="search-deposits" placeholder="بحث بمعرف الإيداع، العميل، أو البنك..." data-action="apply-filters" data-section="deposits">
-                    </div>
-
-                    <div class="fp-dates-row">
+    <i class="fa-solid fa-magnifying-glass interactive-scale" data-action="apply-filters" data-section="deposits" title="اضغط للبحث"></i>
+    <input type="text" id="search-deposits" data-onenter="apply-filters" data-section="deposits" placeholder="بحث بمعرف الإيداع، العميل، أو البنك...">
+</div>
+<div class="fp-dates-row">
                         <div class="custom-field interactive-scale" data-action="open-calendar" data-type="start" data-section="deposits">
                             <div class="field-content">
                                 <div class="icon-wrapper">
@@ -490,7 +500,7 @@ if (errorScreen) {
                     </div>
 
                     <!-- 🚀 فلاتر التواريخ السريعة (بدون أيقونات) -->
-                    <div class="quick-filters-row d-flex flex-wrap gap-2 mt-10">
+                    <div class="quick-filters-row flex-wrap-gap-2 mt-10">
                         <button type="button" class="qf-btn interactive-scale active" data-action="quick-date" data-range="all" data-section="deposits">الكل</button>
                         <button type="button" class="qf-btn interactive-scale" data-action="quick-date" data-range="today" data-section="deposits">اليوم</button>
                         <button type="button" class="qf-btn interactive-scale" data-action="quick-date" data-range="week" data-section="deposits">آخر 7 أيام</button>
@@ -518,11 +528,10 @@ if (errorScreen) {
 
                 <div class="filter-pro-container">
                     <div class="filter-input-group">
-                        <i class="fa-solid fa-magnifying-glass"></i>
-                        <input type="text" id="search-orders" placeholder="بحث برقم الطلب، العميل، أو المعرف..." data-action="apply-filters" data-section="orders">
-                    </div>
-                    
-                    <div class="fp-dates-row">
+    <i class="fa-solid fa-magnifying-glass interactive-scale" data-action="apply-filters" data-section="orders" title="اضغط للبحث"></i>
+    <input type="text" id="search-orders" data-onenter="apply-filters" data-section="orders" placeholder="بحث برقم الطلب، العميل، أو المعرف...">
+</div>
+<div class="fp-dates-row">
                         <div class="custom-field interactive-scale" data-action="open-calendar" data-type="start" data-section="orders">
                             <div class="field-content">
                                 <div class="icon-wrapper">
@@ -547,7 +556,7 @@ if (errorScreen) {
                     </div>
 
                     <!-- 🚀 فلاتر التواريخ السريعة (بدون أيقونات) -->
-                    <div class="quick-filters-row d-flex flex-wrap gap-2 mt-10">
+                    <div class="quick-filters-row flex-wrap-gap-2 mt-10">
                         <button type="button" class="qf-btn interactive-scale active" data-action="quick-date" data-range="all" data-section="orders">الكل</button>
                         <button type="button" class="qf-btn interactive-scale" data-action="quick-date" data-range="today" data-section="orders">اليوم</button>
                         <button type="button" class="qf-btn interactive-scale" data-action="quick-date" data-range="week" data-section="orders">آخر 7 أيام</button>
@@ -571,14 +580,14 @@ if (errorScreen) {
             </button>
         </div>
     </div>           
-                <div class="filter-pro-container mb-15">
-                    <div class="filter-input-group w-100">
-                        <i class="fa-solid fa-magnifying-glass"></i>
-                        <input type="text" id="user-search" placeholder="بحث (ID، اسم مستخدم، هاتف، بريد)..." data-action="search-users">
-                    </div>
-                </div>
-                <div id="users-container" class="users-grid"></div>
-            </div>
+    <div class="filter-pro-container mb-15">
+    <div class="filter-input-group w-100">
+        <i class="fa-solid fa-magnifying-glass interactive-scale" data-action="search-users" title="اضغط للبحث"></i>
+        <input type="text" id="user-search" data-onenter="search-users" placeholder="بحث (ID، اسم مستخدم، هاتف، بريد)...">
+    </div>
+</div>
+<div id="users-container" class="users-grid"></div>
+</div>
 
             <div id="view-products" class="section">
                 <div class="card-header mb-15 no-border-bottom">
@@ -586,16 +595,16 @@ if (errorScreen) {
                     <div id="prod-actions"></div>
                 </div>
 
-                <div class="panel-card mb-15">
-                    <div class="setting-item-row flex-between align-items-center">
+                <div class="card mb-15">
+                    <div class="setting-item-row mb-0">
                         <div class="setting-text">
                             <h3 class="fs-14 fw-bold mb-5 text-main">
-                                <i class="fa-solid fa-mobile-screen text-primary icon-me-2"></i> مزامنة التخطيط مع المتجر
+                                <i class="fa-solid fa-mobile-screen text-primary me-1"></i> مزامنة التخطيط مع المتجر
                             </h3>
                             <p class="fs-12 text-muted m-0">عند التفعيل، سيتم تطبيق عدد الأعمدة المختار هنا على واجهة العملاء فوراً.</p>
                         </div>
                         <div class="setting-control">
-                            <label class="switch m-0 interactive-scale">
+                            <label class="switch interactive-scale">
                                 <input type="checkbox" id="sync-grid-store" data-action="toggle-grid-sync">
                                 <span class="slider"></span>
                             </label>
@@ -696,7 +705,7 @@ if (errorScreen) {
                             <label class="form-label">حجم اللوغو في واجهة المتجر (Scale Control)</label>
                             <div class="flex-center-gap slider-control-box">
                                 <i class="fa-solid fa-down-left-and-up-right-to-center text-muted"></i>
-                                <input type="range" id="store-logo-size" min="20" max="80" value="36" class="form-input slider-input-clean" data-action="update-brand-size">
+                                <input type="range" id="store-logo-size" min="20" max="80" value="36" class="form-input slider-input-clean" data-action="update-brand-size" data-oninput="update-brand-size">
                                 <span id="logo-size-val" class="badge-qty badge-fixed-45 font-numeric">36px</span>
                             </div>
                         </div>
@@ -728,18 +737,18 @@ if (errorScreen) {
                             </div>
 
                             <div class="setting-item-row p-8-12">
-                                <span class="switch-title" style="font-size: 11px;">إضافة توهج للنص (Text Glow/Shadow)</span>
+                                <span class="switch-title fs-11">إضافة توهج للنص (Text Glow/Shadow)</span>
                                 <label class="switch interactive-scale"><input type="checkbox" id="store-name-shadow" data-action="update-brand"><span class="slider"></span></label>
                             </div>
                         </div>
                     </div>
 
                     <div class="brand-preview-box">
-                        <img id="live-logo-img" src="" class="brand-live-logo hide-element">
+                        <img id="live-logo-img" class="brand-live-logo hide-element">
                         <span id="live-name-text" class="brand-live-text"></span>
                     </div>
 
-                    <button type="button" class="btn btn-primary btn-full interactive-scale mt-15" data-action="save-store-identity">
+                    <button type="button" class="btn btn-primary w-100 interactive-scale mt-15" data-action="save-store-identity">
                         <i class="fa-solid fa-floppy-disk me-1"></i> حفظ هوية المتجر
                     </button>
                 </div>
@@ -748,8 +757,9 @@ if (errorScreen) {
                     <div class="card-header no-border-bottom mb-15">
                         <div class="card-title"><i class="fa-solid fa-images text-primary me-1"></i> إدارة اللافتات الإعلانية</div>
                         <button type="button" class="btn btn-primary interactive-scale" data-action="open-banner-modal">
-    <i class="fa-solid fa-plus me-1"></i> إضافة صورة
-</button>                    </div>
+                            <i class="fa-solid fa-plus me-1"></i> إضافة صورة
+                        </button>
+                    </div>
                     
                     <div class="items-grid mb-15" id="banner-grid"></div>
 
@@ -802,7 +812,7 @@ if (errorScreen) {
                         </select>
                     </div>
 
-                    <button type="button" class="btn btn-primary btn-full interactive-scale mt-10" data-action="save-ads-settings">
+                    <button type="button" class="btn btn-primary w-100 interactive-scale mt-10" data-action="save-ads-settings">
                         <i class="fa-solid fa-floppy-disk me-1"></i> حفظ الإعدادات
                     </button>
                 </div>
@@ -817,7 +827,7 @@ if (errorScreen) {
                         <textarea id="store-about-us" class="form-input" rows="5" placeholder="اكتب نبذة تعريفية عن متجرك، رؤيتك، ومميزات خدماتك... (يمكنك استخدام أسطر جديدة)"></textarea>
                         <small class="text-muted d-block mt-5">سيظهر هذا النص بشكل ديناميكي في نافذة "من نحن" في تطبيق العميل بدلاً من النص الصلب.</small>
                     </div>
-                    <button type="button" class="btn btn-primary btn-full interactive-scale mt-10" data-action="save-about-us">
+                    <button type="button" class="btn btn-primary w-100 interactive-scale mt-10" data-action="save-about-us">
                         <i class="fa-solid fa-floppy-disk me-1"></i> حفظ النص التعريفي
                     </button>
                 </div>
@@ -839,7 +849,7 @@ if (errorScreen) {
                         <!-- سيتم حقن الروابط هنا برمجياً -->
                     </div>
                     
-                    <button type="button" class="btn btn-primary btn-full interactive-scale mt-10" data-action="save-social-links">
+                    <button type="button" class="btn btn-primary w-100 interactive-scale mt-10" data-action="save-social-links">
                         <i class="fa-solid fa-floppy-disk me-1"></i> حفظ كافة الروابط
                     </button>
                 </div>
@@ -852,8 +862,8 @@ if (errorScreen) {
                     <button type="button" class="btn btn-primary interactive-scale" data-action="open-edit-currency"><i class="fa-solid fa-plus me-1"></i> إضافة عملة</button>
                 </div>
 
-                <div class="panel-card mb-15">
-                    <div class="setting-item-row">
+                <div class="card mb-15">
+                    <div class="setting-item-row mb-0">
                         <div class="setting-text">
                             <h3 class="fs-14 fw-bold mb-5"><i class="fa-solid fa-eye text-primary me-1"></i> طريقة عرض العملات في المنصة</h3>
                             <p class="fs-12 text-muted m-0">اختر كيف تريد أن تظهر المبالغ المالية لك داخل لوحة الإدارة.</p>
@@ -867,14 +877,14 @@ if (errorScreen) {
                     </div>
                 </div>
 
-                <div class="panel-card mb-15">
-                    <div class="setting-item-row flex-between align-items-center">
+                <div class="card mb-15">
+                    <div class="setting-item-row mb-0">
                         <div class="setting-text">
                             <h3 class="fs-14 fw-bold mb-5"><i class="fa-solid fa-store text-success me-1"></i> مزامنة التنسيق مع المتجر</h3>
                             <p class="fs-12 text-muted m-0">عند التفعيل، سيتم تطبيق نفس خيار التنسيق أعلاه (شعار أو رمز) على واجهة العملاء أيضاً.</p>
                         </div>
                         <div class="setting-control">
-                            <label class="switch m-0 interactive-scale">
+                            <label class="switch interactive-scale">
                                 <input type="checkbox" id="setting-sync-currency-store" data-action="auto-save-settings">
                                 <span class="slider"></span>
                             </label>
@@ -882,14 +892,14 @@ if (errorScreen) {
                     </div>
                 </div>
 
-                <div class="panel-card mb-15">
-                    <div class="setting-item-row flex-between align-items-center">
+                <div class="card mb-15">
+                    <div class="setting-item-row mb-0">
                         <div class="setting-text">
                             <h3 class="fs-14 fw-bold mb-5"><i class="fa-solid fa-eye-slash text-danger me-1"></i> كبسولة تبديل العملات في المتجر</h3>
                             <p class="fs-12 text-muted m-0">إظهار أو إخفاء كبسولة العملات من الهيدر العلوي للعملاء.</p>
                         </div>
                         <div class="setting-control">
-                            <label class="switch m-0 interactive-scale">
+                            <label class="switch interactive-scale">
                                 <input type="checkbox" id="setting-show-currency" checked data-action="auto-save-settings">
                                 <span class="slider"></span>
                             </label>
@@ -1009,7 +1019,7 @@ if (errorScreen) {
                                 <div class="anim-opt interactive-scale" data-val="shake" data-action="select-animation"><i class="fa-solid fa-hand"></i><span>اهتزاز</span></div>
                             </div>
                         </div>
-                        <button type="button" class="btn btn-primary btn-full interactive-scale mt-15" data-action="save-support">
+                        <button type="button" class="btn btn-primary w-100 interactive-scale mt-15" data-action="save-support">
                             <i class="fa-solid fa-floppy-disk me-1"></i> حفظ إعدادات الدعم
                         </button>
                     </div>
@@ -1037,9 +1047,8 @@ if (errorScreen) {
             </div> 
 
             <div id="view-kyc-system" class="section">
-                <div class="view-header mb-4">
-                    <h4 class="fw-900"><i class="fa-solid fa-shield-halved text-warning me-1"></i> مركز حماية الهوية (KYC)</h4>
-                    <p class="text-muted">تحكم في شروط الأمان وفرض توثيق الهوية على العملاء.</p>
+                <div class="card-header mb-15 no-border-bottom">
+                    <div class="card-title"><i class="fa-solid fa-shield-halved text-warning me-1"></i> مركز حماية الهوية (KYC)</div>
                 </div>
                 <div id="kyc-dashboard-target"></div>
             </div>
@@ -1092,7 +1101,7 @@ if (errorScreen) {
                         <label class="form-label">حظر عنوان IP جديد</label>
                         <div class="flex-gap-10">
                             <input type="text" id="new-ban-ip-input" class="form-input font-numeric flex-1" placeholder="مثال: 192.168.1.1">
-                            <button type="button" class="btn btn-danger interactive-scale w-auto" data-action="add-global-ban-ip"><i class="fa-solid fa-ban me-1"></i> حظر</button>
+                            <button type="button" class="btn btn-danger interactive-scale" data-action="add-global-ban-ip"><i class="fa-solid fa-ban me-1"></i> حظر</button>
                         </div>
                     </div>
 
@@ -1115,14 +1124,15 @@ if (errorScreen) {
                     <p class="text-muted fs-12 mb-15">
                         استخدم هذا الخيار (كزر طوارئ) في حال تأخر مزامنة السيرفر، أو إذا لاحظت أن الأسعار أو بوابات الدفع لا تتحدث في واجهة العملاء. سيقوم هذا الزر بإجبار خوادم Firebase على هدم وبناء كاش التسعير من الصفر.
                     </p>
-                    <div class="d-flex flex-wrap gap-2">
-    <button type="button" class="btn btn-danger interactive-scale flex-1 fw-bold p-12" data-action="force-sync-pricing">
-        <i class="fa-solid fa-server me-1"></i> ترميم كاش الأسعار والبوابات
-    </button>
-    <button type="button" class="btn btn-warning text-dark interactive-scale flex-1 fw-bold p-12" data-action="force-sync">
-        <i class="fa-solid fa-boxes-packing me-1"></i> إعادة بناء كتالوج العملاء الشامل
-    </button>
-</div>   </div>
+                    <div class="flex-wrap-gap-2">
+                        <button type="button" class="btn btn-danger interactive-scale flex-1 fw-bold p-12" data-action="force-sync-pricing">
+                            <i class="fa-solid fa-server me-1"></i> ترميم كاش الأسعار والبوابات
+                        </button>
+                        <button type="button" class="btn btn-warning interactive-scale flex-1 fw-bold p-12" data-action="force-sync">
+                            <i class="fa-solid fa-boxes-packing me-1"></i> إعادة بناء كتالوج العملاء الشامل
+                        </button>
+                    </div>
+                </div>
 
             </div>
             
@@ -1143,7 +1153,7 @@ if (errorScreen) {
                     <!-- الحاوية التي سيتم رسم الكروت بداخلها ديناميكياً -->
                     <div id="dynamic-terms-container" class="dynamic-cards-list"></div>
                     
-                    <button type="button" class="btn btn-primary btn-full interactive-scale btn-terms-save mt-15" data-action="save-terms">
+                    <button type="button" class="btn btn-primary w-100 interactive-scale btn-terms-save mt-15" data-action="save-terms">
                         <i class="fa-solid fa-floppy-disk me-1"></i> حفظ الشروط والأحكام
                     </button>
                 </div>
@@ -1163,8 +1173,10 @@ if (errorScreen) {
                 
                 <div id="suppliers-grid" class="items-grid"></div>
             </div>
-            </main>
-        <!-- Modals Overlay -->
+        </div>
+    </main>
+
+    <!-- Modals Overlay -->
     <div class="modal-overlay" id="m-profile">
         <div class="modal-content">
             <div class="modal-close-btn interactive-scale" data-action="close-modal"><i class="fa-solid fa-xmark"></i></div>
@@ -1172,9 +1184,9 @@ if (errorScreen) {
             
             <div class="upload-area interactive-scale" id="adm-img-wrap" data-action="trigger-click" data-target="adm-img-file">
                 <div class="btn-remove-img interactive-scale" data-action="clear-img" data-preview="adm-img-prev" data-wrap="adm-img-wrap" data-input="adm-img-file"><i class="fa-solid fa-xmark"></i></div>
-                <i class="fa-solid fa-camera"></i>
-                <input type="file" id="adm-img-file" hidden accept="image/*" data-action="upload-img" data-preview="adm-img-prev" data-wrap="adm-img-wrap">
-                <img id="adm-img-prev"><span>تغيير الصورة</span>
+                <i class="fa-solid fa-camera mb-5 upload-icon-gold upload-icon-lg"></i>
+                <input type="file" id="adm-img-file" class="hide-element" accept="image/*" data-action="upload-img" data-preview="adm-img-prev" data-wrap="adm-img-wrap">
+                <img id="adm-img-prev"><span class="upload-hint-text">تغيير الصورة</span>
             </div>
             
             <label class="form-label">الاسم</label>
@@ -1182,12 +1194,13 @@ if (errorScreen) {
             
             <label class="form-label">البريد الإلكتروني</label>
             <input id="adm-email" class="form-input font-numeric mb-10" readonly disabled title="لا يمكن تغيير البريد الإلكتروني لدواعي أمنية">            
+            
             <label class="form-label">أمان الحساب وكلمة المرور</label>
-<button type="button" class="btn btn-ghost w-100 text-warning mb-10 interactive-scale" data-action="reset-admin-password" style="border: 1px dashed var(--border-color);">
-    <i class="fa-solid fa-key me-1"></i> إرسال رابط تغيير كلمة المرور إلى بريدي (Firebase)
-</button>                    
+            <button type="button" class="btn btn-password-reset w-100 text-info mb-10 interactive-scale" data-action="reset-admin-password">
+                <i class="fa-solid fa-key me-1"></i> إرسال رابط تغيير كلمة المرور إلى بريدي (Firebase)
+            </button> 
+                               
             <div class="modal-actions-row mt-15 pt-15 border-top-solid">
-
                 <button type="button" class="btn btn-primary interactive-scale flex-1" data-action="save-admin-profile">
                     <i class="fa-solid fa-floppy-disk me-1"></i> حفظ التغييرات
                 </button>
@@ -1226,14 +1239,15 @@ if (errorScreen) {
                     <label class="switch interactive-scale"><input type="checkbox" id="pref-vault"><span class="slider"></span></label>
                 </div>
                 <div class="toggle-box mb-15">
-    <span class="toggle-lbl"><i class="fa-solid fa-id-card-clip text-purple me-1"></i> طلبات توثيق الهوية (KYC)</span>
-    <label class="switch interactive-scale"><input type="checkbox" id="pref-kyc"><span class="slider"></span></label>
-</div>
-<div class="toggle-box mb-15">
-    <span class="toggle-lbl"><i class="fa-solid fa-shield-virus text-danger me-1"></i> إنذارات النظام والأمان الحرجة</span>
-    <label class="switch interactive-scale"><input type="checkbox" id="pref-system-alerts"><span class="slider"></span></label>
-</div>
-</div>
+                    <span class="toggle-lbl"><i class="fa-solid fa-id-card-clip text-purple me-1"></i> طلبات توثيق الهوية (KYC)</span>
+                    <label class="switch interactive-scale"><input type="checkbox" id="pref-kyc"><span class="slider"></span></label>
+                </div>
+                <div class="toggle-box mb-15">
+                    <span class="toggle-lbl"><i class="fa-solid fa-shield-virus text-danger me-1"></i> إنذارات النظام والأمان الحرجة</span>
+                    <label class="switch interactive-scale"><input type="checkbox" id="pref-system-alerts"><span class="slider"></span></label>
+                </div>
+            </div>
+            
             <div class="modal-actions-row mt-20">
                 <button type="button" class="btn btn-primary interactive-scale flex-1" data-action="save-admin-prefs">
                     <i class="fa-solid fa-floppy-disk me-1"></i> حفظ الإعدادات وربط الجهاز
@@ -1334,66 +1348,67 @@ if (errorScreen) {
 <script src="https://cdn.jsdelivr.net/npm/apexcharts"></script>
 <script>
     function handleModuleError(event) {
-    // تجاهل أخطاء الصور والأيقونات أو الأخطاء العابرة بعد اكتمال إقلاع النظام
-    if (window.AppController && window.AppController.isInitialized) return;
-    if (event.target && (event.target.tagName === 'IMG' || event.target.tagName === 'LINK' || event.target.tagName === 'SCRIPT')) return;
-    if (event && event.message && (event.message.includes('favicon') || event.message.includes('extension'))) return;
-    
-    const escHtml = (str) => String(str || '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' } [c]));
-    
-    const loader = document.getElementById('loader');
-    if (loader) loader.style.display = 'none';
-    
-    const errorScreen = document.getElementById('system-fatal-error');
-    if (errorScreen) {
-        errorScreen.classList.remove('hide-element');
-        errorScreen.classList.add('active');
+        // تجاهل أخطاء الصور والأيقونات أو الأخطاء العابرة بعد اكتمال إقلاع النظام
+        if (window.AppController && window.AppController.isInitialized) return;
+        if (event.target && (event.target.tagName === 'IMG' || event.target.tagName === 'LINK' || event.target.tagName === 'SCRIPT')) return;
+        if (event && event.message && (event.message.includes('favicon') || event.message.includes('extension'))) return;
         
-        const errDesc = errorScreen.querySelector('p.fatal-error-desc') || errorScreen.querySelector('p');
-        if (errDesc) {
-            let actualError = 'خطأ برمجي غير معروف';
-            let fileInfo = '';
-            let stackTrace = '';
+        const escHtml = (str) => String(str || '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' } [c]));
+        
+        const loader = document.getElementById('loader');
+        if (loader) loader.classList.remove('active');
+        
+        const errorScreen = document.getElementById('system-fatal-error');
+        if (errorScreen) {
+            errorScreen.classList.remove('hide-element');
+            errorScreen.classList.add('active');
             
-            let errorObj = null;
-            if (event instanceof ErrorEvent) {
-                errorObj = event.error || event;
-            } else if (event instanceof PromiseRejectionEvent) {
-                errorObj = event.reason;
-            } else {
-                errorObj = event;
-            }
-            
-            if (errorObj) {
-                actualError = escHtml(errorObj.message || errorObj.toString());
+            const errDesc = errorScreen.querySelector('p.fatal-error-desc') || errorScreen.querySelector('p');
+            if (errDesc) {
+                let actualError = 'خطأ برمجي غير معروف';
+                let fileInfo = '';
+                let stackTrace = '';
                 
-                if (errorObj.stack) {
-                    stackTrace = escHtml(errorObj.stack);
-                    const stackLines = String(errorObj.stack).split('\n');
-                    let targetLine = stackLines.find(line => line.includes('.js') && !line.includes('admin.html'));
-                    
-                    if (targetLine) {
-                        const match = targetLine.match(/\/([^\/]+\.js):(\d+):(\d+)/);
-                        if (match) {
-                            fileInfo = `<br><br><span style="color:#fbbf24">الملف المذنب: <b>${escHtml(match[1])}</b></span> <br><span style="color:#38bdf8">السطر: <b>${escHtml(match[2])}</b></span>`;
-                        } else {
-                            fileInfo = `<br><br><span style="color:#fbbf24">تفاصيل: ${escHtml(targetLine.trim())}</span>`;
-                        }
-                    }
-                } else if (event.filename) {
-                    let shortFile = event.filename.split('/').pop();
-                    fileInfo = `<br><br><span style="color:#fbbf24">الملف: <b>${escHtml(shortFile)}</b></span> <br><span style="color:#38bdf8">السطر: <b>${escHtml(event.lineno)}</b></span>`;
+                let errorObj = null;
+                if (event instanceof ErrorEvent) {
+                    errorObj = event.error || event;
+                } else if (event instanceof PromiseRejectionEvent) {
+                    errorObj = event.reason;
+                } else {
+                    errorObj = event;
                 }
+                
+                if (errorObj) {
+                    actualError = escHtml(errorObj.message || errorObj.toString());
+                    
+                    if (errorObj.stack) {
+                        stackTrace = escHtml(errorObj.stack);
+                        const stackLines = String(errorObj.stack).split('\n');
+                        let targetLine = stackLines.find(line => line.includes('.js') && !line.includes('admin.html'));
+                        
+                        if (targetLine) {
+                            const match = targetLine.match(/\/([^\/]+\.js):(\d+):(\d+)/);
+                            if (match) {
+                                fileInfo = `<br><br><span class="text-warning">الملف المذنب: <b>${escHtml(match[1])}</b></span> <br><span class="text-ref">السطر: <b>${escHtml(match[2])}</b></span>`;
+                            } else {
+                                fileInfo = `<br><br><span class="text-warning">تفاصيل: ${escHtml(targetLine.trim())}</span>`;
+                            }
+                        }
+                    } else if (event.filename) {
+                        let shortFile = event.filename.split('/').pop();
+                        fileInfo = `<br><br><span class="text-warning">الملف: <b>${escHtml(shortFile)}</b></span> <br><span class="text-ref">السطر: <b>${escHtml(event.lineno)}</b></span>`;
+                    }
+                }
+                
+                errDesc.innerHTML = `<div dir="ltr" class="fatal-error-msg-box">
+                        <b class="text-danger">${actualError}</b>
+                        ${fileInfo}
+                        ${stackTrace ? `<br><br><details><summary class="fatal-error-summary">عرض المسار الكامل (Stack)</summary><div class="fatal-error-stack">${stackTrace}</div></details>` : ''}
+                    </div>`;
             }
-            
-            errDesc.innerHTML = `<div dir="ltr" class="fatal-error-msg-box" style="text-align: left; font-family: monospace; font-size: 13px; line-height: 1.5; word-wrap: break-word;">
-                    <b style="color: #ef4444;">${actualError}</b>
-                    ${fileInfo}
-                    ${stackTrace ? `<br><br><details><summary style="color:#888; cursor:pointer;">عرض المسار الكامل (Stack)</summary><div style="color:#aaa; font-size:10px; margin-top:5px; white-space: pre-wrap;">${stackTrace}</div></details>` : ''}
-                </div>`;
         }
     }
-}    
+    
     // تفعيل الرادار المتقدم
     window.addEventListener('error', handleModuleError, true);
     window.addEventListener('unhandledrejection', handleModuleError);

@@ -1,10 +1,12 @@
 // ============================================================================
-// 📦 محرك رسم الطلبات (modules/orders/ordersRender.js) - النسخة الماسية V16.3 💎
+// 📦 محرك رسم الطلبات (modules/orders/ordersRender.js) - النسخة الماسية V16.5 💎
 // 🎯 الوظيفة: عرض الطلبات، الفلترة الهجينة (محلي + سحابي 360°)، حفظ عدادات التبويبات.
-// 🚀 التحديثات المعمارية (V16.3 - Zero Read Bleed & Active Badge Sync):
-// 1. Zero-Read Source Filter ⚡: الفلترة بين (الكل/API/يدوي/آلي) تتم الآن محلياً بـ 0 قراءات سحابية طالما الطلبات في الذاكرة.
-// 2. Double-Trigger Shield 🛡️: إحباط المؤقت التلقائي عند استدعاء السيرفر يدوياً لمنع تكرار القراءة لنفس البحث.
-// 3. Active Badge Sync 🔴: مزامنة شارة القائمة الجانبية (badge-ord) مع عداد الطلبات المعلقة محلياً بشكل لحظي.
+// 🌟 التحديثات المعمارية:
+// 1. ReferenceError Fix 🐛: تصحيح الخطأ البرمجي في تصدير الإكسيل واستبدال d.userName بـ o.userName.
+// 2. Zero Inline Styles 🧹: استبدال link.style.visibility بكلاس النظام الموحد .hide-element.
+// 3. Grid-Safe Loaders 📐: استبدال .p-20 غير المعرّف في مؤشرات تحميل الفلاتر بحاويات .empty-state لتتوسط الشبكة.
+// 4. Clean Price Typography 🏷️: استبدال .dual-price-sub بالكلاسات المعتمدة (.fs-11.text-muted).
+// 5. Race-Condition Armor 🛡️: حماية التبديل السريع بين التبويبات باستخدام _fetchRequestId لضمان عدم تداخل استجابات السحابة المتأخرة.
 // ============================================================================
 
 import { AdminData } from '../../adminData.js';
@@ -17,6 +19,9 @@ import { UIService } from '../../core/uiService.js';
 export const OrdersRender = {
     ordersLimit: 50,
     tabState: 'all',
+    _loadedTabState: 'all',
+    _needsCloudReload: false,
+    _fetchRequestId: 0,
     sourceState: 'all', 
     filters: {},
     _currentFilteredData: [], 
@@ -37,6 +42,12 @@ export const OrdersRender = {
             }
         });
         EventBus.on('req-clear-render-filters', () => {
+            if (this._loadedTabState !== 'all' || this._lastCloudQuerySig !== '||') {
+                this._needsCloudReload = true;
+                AdminData.cursors.orders = null;
+                AdminData.data.orders = [];
+                this._currentFilteredData = [];
+            }
             this.tabState = 'all';
             this.sourceState = 'all';
             this.ordersLimit = 50;
@@ -51,38 +62,38 @@ export const OrdersRender = {
     },
 
     _checkAndScheduleCloudReload: function() {
-    const f = this.filters || {};
-    const searchStr = String(f.search || '').trim();
-    const prevParts = (this._lastCloudQuerySig || '||').split('|');
-    const datesChanged = (String(prevParts[1] || '') !== String(f.start || '')) || (String(prevParts[2] || '') !== String(f.end || ''));
-    
-    if (!datesChanged && searchStr.length > 0 && searchStr.length < 2) {
-        return;
-    }
-    
-    if (!datesChanged && searchStr === '' && prevParts[0] !== '') {
-        this._lastCloudQuerySig = this._getCloudQuerySignature();
-        this.renderOrders();
-        return;
-    }
-    
-    if (!datesChanged && /^(#?ORD-|#?TC-)/i.test(searchStr)) {
-        const cleanId = searchStr.replace(/^(#|ORD-)\s*/i, '').trim().toUpperCase();
-        const tcId = cleanId.startsWith('TC-') ? cleanId : `TC-${cleanId}`;
-        if (AdminData.data?.ordersMap?.[cleanId] || AdminData.data?.ordersMap?.[tcId]) {
-            this._lastCloudQuerySig = this._getCloudQuerySignature();
+        const f = this.filters || {};
+        const searchStr = String(f.search || '').trim();
+        const prevParts = (this._lastCloudQuerySig || '||').split('|');
+        const datesChanged = (String(prevParts[1] || '') !== String(f.start || '')) || (String(prevParts[2] || '') !== String(f.end || ''));
+        
+        if (!datesChanged && searchStr.length > 0 && searchStr.length < 2) {
             return;
         }
-    }
+        
+        if (!datesChanged && /^(#?ORD-|#?TC-)/i.test(searchStr)) {
+            const cleanId = searchStr.replace(/^(#|ORD-)\s*/i, '').trim().toUpperCase();
+            const tcId = cleanId.startsWith('TC-') ? cleanId : `TC-${cleanId}`;
+            const existsInCurrentList = Array.isArray(AdminData.data?.orders) && AdminData.data.orders.some(o =>
+                String(o.id || '').toUpperCase() === cleanId ||
+                String(o.id || '').toUpperCase() === tcId ||
+                String(o.displayId || '').toUpperCase() === cleanId
+            );
+            if (existsInCurrentList) {
+                this._lastCloudQuerySig = this._getCloudQuerySignature();
+                return;
+            }
+        }
+        
+        const newSig = this._getCloudQuerySignature();
+        if (newSig === this._lastCloudQuerySig) return;
+        
+        if (this._cloudSearchTimer) clearTimeout(this._cloudSearchTimer);
+        this._cloudSearchTimer = setTimeout(() => {
+            this.triggerCloudFilterReload();
+        }, 400);
+    },
     
-    const newSig = this._getCloudQuerySignature();
-    if (newSig === this._lastCloudQuerySig) return;
-    
-    if (this._cloudSearchTimer) clearTimeout(this._cloudSearchTimer);
-    this._cloudSearchTimer = setTimeout(() => {
-        this.triggerCloudFilterReload();
-    }, 400);
-},
     triggerCloudFilterReload: function() {
         if (this._cloudSearchTimer) {
             clearTimeout(this._cloudSearchTimer);
@@ -93,20 +104,25 @@ export const OrdersRender = {
         const newSig = this._getCloudQuerySignature();
         const newParts = newSig.split('|');
         this._lastCloudQuerySig = newSig;
-
+        
+        const searchChanged = (prevParts[0] !== newParts[0]);
         const datesChanged = (prevParts[1] !== newParts[1]) || (prevParts[2] !== newParts[2]);
-        const searchCleared = (prevParts[0] !== '' && newParts[0] === '');
-
+        
         this.ordersLimit = 50;
         AdminData.cursors.orders = null;
-
-        if (datesChanged || searchCleared) {
+        this._needsCloudReload = false;
+        
+        if (searchChanged || datesChanged) {
             AdminData.data.orders = [];
             this._currentFilteredData = [];
+            const list = document.getElementById('orders-container');
+            if (list) {
+                list.innerHTML = '<div class="empty-state"><i class="fa-solid fa-circle-notch fa-spin"></i><span>جاري جلب الطلبات من السيرفر...</span></div>';
+            }
         }
         this.loadMoreOrders();
-    },
-
+    },    
+    
     adjustTabCountersOnStatusChange: function(oldStatus, newStatus) {
         const normalizeSt = (st) => {
             if (st === 'pending' || st === 'processing') return 'pending';
@@ -130,12 +146,12 @@ export const OrdersRender = {
         this.ordersLimit = 50;
         this._currentFilteredData = [];
         
-        // ⚡ فلترة محلية فورية بـ 0 قراءات سحابية إذا كانت الطلبات محملة بالفعل في الذاكرة
-        if (Array.isArray(AdminData.data.orders) && AdminData.data.orders.length > 0) {
+        if (!this._needsCloudReload && Array.isArray(AdminData.data.orders) && AdminData.data.orders.length > 0) {
             this.renderOrders();
         } else {
+            this._needsCloudReload = false;
             const list = document.getElementById('orders-container');
-            if (list) list.innerHTML = '<div class="text-center p-20"><i class="fa-solid fa-circle-notch fa-spin"></i> جاري جلب الطلبات...</div>';
+            if (list) list.innerHTML = '<div class="empty-state"><i class="fa-solid fa-circle-notch fa-spin"></i><span>جاري جلب الطلبات...</span></div>';
             this.loadMoreOrders();
         }
     },
@@ -143,26 +159,30 @@ export const OrdersRender = {
     filterByTab: function(status, btnElement) {
         this.tabState = status;
         this.ordersLimit = 50;
-        AdminData.cursors.orders = null; 
+        this._needsCloudReload = false;
+        AdminData.cursors.orders = null;
         AdminData.data.orders = [];
-        this._currentFilteredData = []; 
-
+        this._currentFilteredData = [];
+        
         const container = document.getElementById('tabs-orders');
-        if(container) {
+        if (container) {
             container.querySelectorAll('.main-tab-btn').forEach(btn => btn.classList.remove('active'));
-            if(btnElement) btnElement.classList.add('active');
+            const targetBtn = btnElement || container.querySelector(`.main-tab-btn[data-val="${status}"]`);
+            if (targetBtn) targetBtn.classList.add('active');
         }
         
         const list = document.getElementById('orders-container');
-        if (list) list.innerHTML = '<div class="text-center p-20"><i class="fa-solid fa-circle-notch fa-spin"></i> جاري جلب الطلبات...</div>';
+        if (list) list.innerHTML = '<div class="empty-state"><i class="fa-solid fa-circle-notch fa-spin"></i><span>جاري جلب الطلبات...</span></div>';
         this.loadMoreOrders();
     },
 
     loadMoreOrders: async function() {
-        if (this._isFetchingCloud) return;
+        const isPaginationClick = Boolean(AdminData.cursors.orders);
+        if (isPaginationClick && this._isFetchingCloud) return;
         this._isFetchingCloud = true;
+        const reqId = ++this._fetchRequestId;
 
-        const btn = document.querySelector('.btn-load-more');
+        const btn = document.querySelector('#load-more-orders-btn .btn-load-more');
         if (btn) {
             btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> جاري التحميل من السحابة...';
             btn.disabled = true;
@@ -170,10 +190,11 @@ export const OrdersRender = {
         
         try {
             this._lastCloudQuerySig = this._getCloudQuerySignature();
+            const requestedTab = this.tabState || 'all';
             const activeSearchTerm = this.filters.search ? String(this.filters.search).trim() : null;
             const payload = {
-                limit: this.tabState === 'pending' ? 200 : 50,
-                status: (this.tabState && this.tabState !== 'all') ? this.tabState : null,
+                limit: requestedTab === 'pending' ? 200 : 50,
+                status: (requestedTab && requestedTab !== 'all') ? requestedTab : null,
                 startDateMs: this.filters.start || null,
                 endDateMs: this.filters.end || null,
                 searchQuery: activeSearchTerm,
@@ -182,6 +203,8 @@ export const OrdersRender = {
             };
             
             const res = await FirebaseAdapter.callFunction('adminGetOrdersList', payload);
+            if (reqId !== this._fetchRequestId) return;
+            this._loadedTabState = requestedTab;
             
             if (res && res.success && res.data && res.data.length > 0) {
                 const currentOrdersMap = new Map((AdminData.data.orders || []).map(o => [o.id, o]));
@@ -219,23 +242,31 @@ export const OrdersRender = {
                 this.renderOrders();
             }
         } catch (error) {
+            if (reqId !== this._fetchRequestId) return;
             console.error("🚨 فشل جلب المزيد من الطلبات السحابية:", error);
             if (btn) {
                 btn.innerHTML = '<i class="fa-solid fa-rotate-right"></i> حاول مجدداً';
             }
         } finally {
-            this._isFetchingCloud = false;
-            if (btn && AdminData.cursors.orders) btn.disabled = false;
+            if (reqId === this._fetchRequestId) {
+                this._isFetchingCloud = false;
+                if (btn && AdminData.cursors.orders) btn.disabled = false;
+            }
         }
     },
 
     renderOrders: function() {
-        const list = document.getElementById('orders-container'); 
-        if(!list) return;
+        const list = document.getElementById('orders-container');
+        if (!list) return;
         
-        this._checkAndScheduleCloudReload();
-
-        const f = this.filters || {};
+        if (this._needsCloudReload) {
+            this._needsCloudReload = false;
+            list.innerHTML = '<div class="empty-state"><i class="fa-solid fa-circle-notch fa-spin"></i><span>جاري جلب الطلبات...</span></div>';
+            this.loadMoreOrders();
+            return;
+        }
+        
+        const f = this.filters || {};        
         let currentSnapshotData = Array.isArray(AdminData.data.orders) ? AdminData.data.orders : [];
         let accumulatedData = Array.isArray(this._currentFilteredData) ? this._currentFilteredData : [];
         
@@ -249,7 +280,7 @@ export const OrdersRender = {
         
         let data = Array.from(combinedMap.values());
 
-        if(f.search) {
+        if (f.search) {
             const rawSearch = String(f.search).trim().toLowerCase();
             const s = rawSearch.replace(/^(#|ord-|usr-|id:?)\s*/i, '').trim();
             if (s) {
@@ -343,10 +374,9 @@ export const OrdersRender = {
         const displayCounts = isUnfilteredView ? this._tabCountsCache : localCounts;
         ['all', 'pending', 'completed', 'rejected', 'refunded'].forEach(st => {
             const el = document.getElementById(`count-ord-${st}`);
-            if(el) { el.innerText = Utils.enNum(displayCounts[st] || 0); el.setAttribute('lang', 'en'); }
+            if (el) { el.innerText = Utils.enNum(displayCounts[st] || 0); el.setAttribute('lang', 'en'); }
         });
 
-        // 🚀 الإصلاح: ربط الشارة الجانبية (Badge) بعداد الطلبات المعلقة محلياً بشكل لحظي
         const sidebarBadge = document.getElementById('badge-ord');
         if (sidebarBadge) {
             const globalPendingCount = this._tabCountsCache.pending || 0;
@@ -360,7 +390,7 @@ export const OrdersRender = {
             }
         }
 
-        if(currentTab !== 'all') {
+        if (currentTab !== 'all') {
             data = data.filter(o => {
                 const s = o.status || 'pending';
                 if (currentTab === 'pending') return s === 'pending' || s === 'processing';
@@ -387,9 +417,9 @@ export const OrdersRender = {
             const userName = o.userDataSnapshot?.fullName || o.userName || (userRec ? RenderHelpers._getTxName(userRec) : 'مستخدم جديد');
             
             const cleanInput = (str) => { 
-                if(!str || str.trim() === '') return null;
-                if(str.includes('|')) return str.split('|').map(s => s.split(':').pop().trim()).join(' | '); 
-                if(str.includes(':')) return str.split(':').pop().trim(); 
+                if (!str || str.trim() === '') return null;
+                if (str.includes('|')) return str.split('|').map(s => s.split(':').pop().trim()).join(' | '); 
+                if (str.includes(':')) return str.split(':').pop().trim(); 
                 return str.trim(); 
             };
             
@@ -398,7 +428,7 @@ export const OrdersRender = {
             const curr = Utils.escapeHTML((o.priceCurrency || 'USD').toUpperCase());
 
             let dualPriceHtml = (curr !== 'USD') 
-                ? `${RenderHelpers.formatMoney(exactPriceUsd, 'USD', 2)} <span class="dual-price-sub">(${RenderHelpers.formatMoney(localPrice, curr, 2)})</span>`
+                ? `${RenderHelpers.formatMoney(exactPriceUsd, 'USD', 2)} <span class="fs-11 text-muted">(${RenderHelpers.formatMoney(localPrice, curr, 2)})</span>`
                 : `${RenderHelpers.formatMoney(exactPriceUsd, 'USD', 2)}`;
 
             const orderWithDualPrice = { ...o, dualPriceTxt: dualPriceHtml };
@@ -417,16 +447,14 @@ export const OrdersRender = {
 
         const sourceFiltersHtml = AdminTemplates.ordersSourceFilters(this.sourceState || 'all');
 
-        if(!data.length && !hasMoreInCloud) { 
+        if (!data.length && !hasMoreInCloud) { 
             list.innerHTML = sourceFiltersHtml + AdminTemplates.emptyOrders(); 
         } else {
             list.innerHTML = sourceFiltersHtml + newHtml + loadMoreHtml;
         }
     },
 
-    // ... (تكملة دالة التصدير للإكسيل كما هي في نسختك الأصلية)
     exportToExcel: async function() {
-        // [كود التصدير يظل كما هو دون تغيير]
         const btn = document.querySelector('[data-action="export-excel"][data-type="orders"]');
         if (btn) {
             btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> جاري استخراج البيانات (قد يستغرق وقتاً)...';
@@ -506,9 +534,10 @@ export const OrdersRender = {
                 const product = sanitizeCSV(o.product || 'منتج غير معروف');
                 const qty = Number(o.qty || 1);
                 
-                const exactPrice = Number(o.priceBaseUsd ?? o.pricingSnapshot?.finalPriceUsd ?? o.pricingSnapshot?.finalPrice ?? o.baseUsd ?? o.price ?? 0);
-                let totalCost = Number(o.pricingSnapshot?.costUsd || o.pricingSnapshot?.cost || 0);
-                let profit = Number(o.pricingSnapshot?.netProfitUsd || o.pricingSnapshot?.profit || 0); 
+                const exactPrice = Number(o.priceBaseUsd ?? o.pricingSnapshot?.totalFinalPrice ?? o.pricingSnapshot?.finalPriceUsd ?? o.pricingSnapshot?.finalPrice ?? o.baseUsd ?? o.price ?? 0);
+                const snap = o.pricingSnapshot || {};
+                let totalCost = Number(snap.totalCostUsd ?? (snap.costUsd !== undefined ? Number(snap.costUsd) * qty : (snap.cost || 0)));
+                let profit = Number(snap.totalNetProfitUsd ?? (snap.netProfitUsd !== undefined ? Number(snap.netProfitUsd) * qty : (snap.profit ?? (totalCost > 0 ? Math.max(0, exactPrice - totalCost) : 0))));
 
                 const isApi = Boolean(o.isApi === true || o.source === 'api');
                 const isSupplier = Boolean(o.supplierId);
@@ -543,9 +572,13 @@ export const OrdersRender = {
         const blob = new Blob([content], { type: 'text/csv;charset=utf-8;' });
         const link = document.createElement("a");
         const url = window.URL.createObjectURL(blob);
-        link.setAttribute("href", url); link.setAttribute("download", filename);
-        link.style.visibility = 'hidden';
-        document.body.appendChild(link); link.click(); document.body.removeChild(link); window.URL.revokeObjectURL(url);
+        link.setAttribute("href", url); 
+        link.setAttribute("download", filename);
+        link.className = 'hide-element'; // ✅ تم تطبيق كلاس الإخفاء الموحد
+        document.body.appendChild(link); 
+        link.click(); 
+        document.body.removeChild(link); 
+        window.URL.revokeObjectURL(url);
         UIService?.showToast?.("تم تحميل التقرير بنجاح", "success");
     }
 };

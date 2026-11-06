@@ -1,12 +1,12 @@
 // ============================================================================
-// 👑 محرك الإدارة والـ BI والتدقيق المالي (functions/adminEngine.js) - V37.7.0 💎
+// 👑 محرك الإدارة والـ BI والتدقيق المالي (functions/adminEngine.js) - V37.8.0 💎
 // 🎯 الوظيفة: معالجة الطلبات والإيداعات إدارياً، تقارير الـ BI، التدقيق المالي، وإدارة العملاء.
-// 🚀 التحديث (V37.7.0 - Deleted Accounts Paging, Ban Guard, Strict Limits & Schema Unification):
-// 1. Deleted Accounts Paging 🔍: استكمال عدد الصفحة عند جلب العملاء وتخطي الحسابات المحذوفة بذكاء دون فهارس.
-// 2. Ban Status Guard 🛡️: منع تعديل حالة الحظر لحساب محذوف نهائياً لحماية عدادات لوحة القيادة.
-// 3. Deleted User Sanitization 🧹: تصفير tierClimbs و devicePrints عند حذف حساب العميل (Soft Delete).
-// 4. Strict Limits 📦: توحيد الحد الأقصى للمنتجات العادية (MAX_QTY_PER_ORDER) إلى 100 كود.
-// 5. Schema Unification 🔗: توحيد حقول الإيداعات (currency, balanceAfter, creditedBaseUsd, actionTime, admin) وإحصائيات الأجهزة المحظورة (bannedDevices).
+// 🚀 التحديث (V37.8.0 - Vault Completion Guard, Atomic User Deletion & Banned User Safeguards):
+// 1. Vault Completion Guard 🔐: منع الإدمن من إكمال أو معالجة طلبات الخزنة يدوياً وحصرها بالرفض/الاسترجاع.
+// 2. Atomic Soft-Delete Lock 🛡️: قفل حساب العميل ذرياً داخل Transaction قبل حذف Auth والملفات السحابية ومنع الحذف المكرر.
+// 3. Banned Accounts Financial Guard 🚫: منع قبول الإيداعات أو إضافة الرصيد للحسابات المحظورة بالخطأ واستبعادها من قائمة أبطال المتجر.
+// 4. Historical Audit Search 🔍: تمكين البحث بالكود القصير عن الطلبات والإيداعات التاريخية للحسابات المحذوفة مع إبقائها مخفية من قائمة العملاء.
+// 5. Profile Phone Preservation 📱: حماية رقم هاتف العميل الموثق من المسح غير المقصود عند تعديل الاسم أو البريد إدارياً.
 // ============================================================================
 
 const { onCall, HttpsError } = require("firebase-functions/v2/https");
@@ -37,7 +37,7 @@ const isMasterAdmin = (request) => SecurityEngine.isMasterAdmin(request);
 const logAdminAction = (adminUid, action, details) => SecurityEngine.logAdminAction(db, admin, adminUid, action, details);
 
 // ==========================================
-// 🛡️ دالةة التدقيق المالي المركزية (Helper Function)
+// 🛡️ دالة التدقيق المالي المركزية (Helper Function)
 // ==========================================
 const performWalletAudit = async (userId, dbInstance, preloadedUserData = null) => {
     let userData = preloadedUserData;
@@ -128,6 +128,7 @@ exports.adminUpdateUserTier = onCall({ enforceAppCheck: false }, async (request)
         throw new HttpsError('internal', `فشل التحديث: ${error.message}`);
     }
 });
+
 // ==========================================
 // 👑 2. معالجة الطلبات الإدارية (All-Reads-First Architecture)
 // ==========================================
@@ -282,6 +283,10 @@ exports.adminProcessOrder = onCall({ enforceAppCheck: false }, async (request) =
                         if (['completed', 'rejected', 'refunded', 'returned'].includes(previousStatus)) {
                             throw new HttpsError('failed-precondition', 'لا يمكن إكمال طلب تمت معالجته بالفعل.');
                         }
+                        // 🛡️ درع الخزنة: طلبات الخزنة تُنفّذ تلقائياً ولا يجوز إكمالها يدوياً
+                        if (poolId) {
+                            throw new HttpsError('failed-precondition', 'لا يمكن إكمال طلبات الخزنة يدوياً لأنها تعمل بنظام التسليم التلقائي الفوري. يمكنك فقط رفض أو استرجاع الطلب.');
+                        }
                         const isCounterProd = prodSnap && prodSnap.exists && prodSnap.data()?.type === 'counter';
                         const maxCompletionQty = isCounterProd ? SYSTEM_LIMITS.MAX_COUNTER_QTY_PER_ORDER : SYSTEM_LIMITS.MAX_QTY_PER_ORDER;                
                         if ((liveOrder.qty || 1) > maxCompletionQty) {
@@ -351,41 +356,39 @@ exports.adminProcessOrder = onCall({ enforceAppCheck: false }, async (request) =
                             throw new HttpsError('failed-precondition', 'تم استرجاع هذا الطلب بالفعل.');
                         }
 
-                        if (poolId && (liveOrder.deliveredCode || keysToHandle.length > 0)) {
-                            if (vSnap && vSnap.exists && keysToHandle.length > 0) {
-                                keysToHandle.forEach(keyDoc => {
-                                    if (previousStatus === 'pending' || previousStatus === 'processing') {
-                                        transaction.update(keyDoc.ref, { 
-                                            isSold: false, 
-                                            orderId: admin.firestore.FieldValue.delete(), 
-                                            userId: admin.firestore.FieldValue.delete(), 
-                                            soldAt: admin.firestore.FieldValue.delete() 
-                                        });
-                                        keysRestoredCount++;
-                                    } else {
-                                        transaction.update(keyDoc.ref, { 
-                                            isSold: true, 
-                                            isBurned: true, 
-                                            refundedAt: admin.firestore.FieldValue.serverTimestamp(), 
-                                            refundedOrderId: orderId, 
-                                            reason: action, 
-                                            originalPoolId: poolId, 
-                                            collectionMarker: 'telecard_vault_returned' 
-                                        });
-                                        keysBurnedCount++;
-                                    }
-                                });
-
-                                let vaultUpdates = { updatedAt: admin.firestore.FieldValue.serverTimestamp() };
-                                if (previousStatus === 'completed') {
-                                    const profitToDeduct = auditedProfitUsd;
-                                    vaultUpdates.totalProfit = admin.firestore.FieldValue.increment(-profitToDeduct);
-                                    vaultUpdates.totalRevenue = admin.firestore.FieldValue.increment(-priceToDeductTierUsd);
+                        if (poolId && vSnap && vSnap.exists && (liveOrder.deliveredCode || keysToHandle.length > 0)) {
+                            keysToHandle.forEach(keyDoc => {
+                                if (previousStatus === 'pending' || previousStatus === 'processing') {
+                                    transaction.update(keyDoc.ref, { 
+                                        isSold: false, 
+                                        orderId: admin.firestore.FieldValue.delete(), 
+                                        userId: admin.firestore.FieldValue.delete(), 
+                                        soldAt: admin.firestore.FieldValue.delete() 
+                                    });
+                                    keysRestoredCount++;
+                                } else {
+                                    transaction.update(keyDoc.ref, { 
+                                        isSold: true, 
+                                        isBurned: true, 
+                                        refundedAt: admin.firestore.FieldValue.serverTimestamp(), 
+                                        refundedOrderId: orderId, 
+                                        reason: action, 
+                                        originalPoolId: poolId, 
+                                        collectionMarker: 'telecard_vault_returned' 
+                                    });
+                                    keysBurnedCount++;
                                 }
-                                if (keysBurnedCount > 0) vaultUpdates.burnedCount = admin.firestore.FieldValue.increment(keysBurnedCount);
-                                if (keysRestoredCount > 0) vaultUpdates.stockCount = admin.firestore.FieldValue.increment(keysRestoredCount);
-                                transaction.update(vRef, vaultUpdates);
+                            });
+
+                            let vaultUpdates = { updatedAt: admin.firestore.FieldValue.serverTimestamp() };
+                            if (previousStatus === 'completed') {
+                                const profitToDeduct = auditedProfitUsd;
+                                vaultUpdates.totalProfit = admin.firestore.FieldValue.increment(-profitToDeduct);
+                                vaultUpdates.totalRevenue = admin.firestore.FieldValue.increment(-priceToDeductTierUsd);
                             }
+                            if (keysBurnedCount > 0) vaultUpdates.burnedCount = admin.firestore.FieldValue.increment(keysBurnedCount);
+                            if (keysRestoredCount > 0) vaultUpdates.stockCount = admin.firestore.FieldValue.increment(keysRestoredCount);
+                            transaction.update(vRef, vaultUpdates);
                         }
 
                         if (liveOrder.deliveredCode && previousStatus === 'completed') {
@@ -528,6 +531,9 @@ exports.adminProcessOrder = onCall({ enforceAppCheck: false }, async (request) =
                         if (['completed', 'rejected', 'refunded', 'returned'].includes(previousStatus)) {
                             throw new HttpsError('failed-precondition', 'لا يمكن إعادة معالجة طلب منتهي.');
                         }
+                        if (poolId) {
+                            throw new HttpsError('failed-precondition', 'لا يمكن تحويل طلبات الخزنة إلى قيد المعالجة يدوياً.');
+                        }
                         transaction.update(orderRef, { 
                             status: action, 
                             adminNote: safeAdminNote, 
@@ -555,6 +561,7 @@ exports.adminProcessOrder = onCall({ enforceAppCheck: false }, async (request) =
         throw new HttpsError('internal', `خطأ برمجي في السيرفر: ${error.message}`);
     }
 });
+
 // ==========================================
 // 📦 3. دالة الرفض الجماعي للطلبات (المحصنة مع تحرير الخزنة واسترجاع المخزون وحماية طلبات الموردين)
 // ==========================================
@@ -898,6 +905,9 @@ exports.adminProcessDeposit = onCall({ enforceAppCheck: false }, async (request)
             if (ud.isDeleted === true && action === 'approved') {
                 throw new HttpsError('failed-precondition', 'لا يمكن قبول الإيداع: تم حذف حساب هذا العميل مسبقاً.');
             }
+            if (ud.isBanned === true && action === 'approved') {
+                throw new HttpsError('failed-precondition', 'لا يمكن قبول الإيداع: هذا العميل محظور حالياً. قم برفض الإيداع أو فك الحظر عنه أولاً.');
+            }
             if (action === 'approved') {
                 newWalletBal = sanitizeAmount(safeAdd(ud.walletBalance || 0, amtLocal));
                 const newTotalDepositUsd = sanitizeAmount(safeAdd(ud.totalDeposit || 0, amtUsd));
@@ -960,6 +970,9 @@ exports.adminAdjustBalance = onCall({ enforceAppCheck: false }, async (request) 
 
         if (userData.isDeleted === true) {
             throw new HttpsError('failed-precondition', 'لا يمكن تعديل رصيد حساب محذوف نهائياً.');
+        }
+        if (userData.isBanned === true && type === 'add') {
+            throw new HttpsError('failed-precondition', 'لا يمكن إضافة رصيد لحساب محظور (يُسمح فقط بخصم الرصيد لتصفير المحفظة).');
         }
         if (userData.isVerified !== true && type === 'add') {
             throw new HttpsError('failed-precondition', 'لا يمكن تعديل الرصيد! العميل لم يكمل إعداد بيانات الحساب.');
@@ -1584,16 +1597,16 @@ exports.adminGetDashboardStats = onCall({ memory: "512MiB", timeoutSeconds: 60 }
         
         if (leaderboardPeriod === 'all') {
             const [topSpendersSnap, topActiveSnap] = await Promise.all([
-                dbInstance.collection('telecard_users').orderBy('totalSpent', 'desc').limit(5).get().catch(() => ({ docs: [] })),
-                dbInstance.collection('telecard_users').orderBy('totalOrdersCount', 'desc').limit(5).get().catch(() => ({ docs: [] }))
+                dbInstance.collection('telecard_users').orderBy('totalSpent', 'desc').limit(10).get().catch(() => ({ docs: [] })),
+                dbInstance.collection('telecard_users').orderBy('totalOrdersCount', 'desc').limit(10).get().catch(() => ({ docs: [] }))
             ]);
-            // 🛡️ استبعاد الحسابات المحذوفة والعملاء الذين إنفاقهم = 0$
+            // 🛡️ استبعاد الحسابات المحذوفة والمحظورة والعملاء الذين إنفاقهم = 0$
             topHeroes = topSpendersSnap.docs
-                .filter(d => d.data().isDeleted !== true && Number(d.data().totalSpent || 0) > 0)
+                .filter(d => d.data().isDeleted !== true && d.data().isBanned !== true && Number(d.data().totalSpent || 0) > 0)
                 .slice(0, 3)
                 .map(d => ({ id: d.id, displayId: d.data().displayId || String(d.id).substring(0, 8), name: d.data().fullName || d.data().username || 'عميل', img: d.data().profileImage || null, spent: sanitizeAmount(d.data().totalSpent || 0) }));
             mostActiveUsers = topActiveSnap.docs
-                .filter(d => d.data().isDeleted !== true && Number(d.data().totalOrdersCount || 0) > 0)
+                .filter(d => d.data().isDeleted !== true && d.data().isBanned !== true && Number(d.data().totalOrdersCount || 0) > 0)
                 .slice(0, 3)
                 .map(d => ({ id: d.id, displayId: d.data().displayId || String(d.id).substring(0, 8), name: d.data().fullName || d.data().username || 'عميل', count: d.data().totalOrdersCount || 0 }));
         } else {
@@ -1678,11 +1691,10 @@ exports.adminGetDashboardStats = onCall({ memory: "512MiB", timeoutSeconds: 60 }
         throw new HttpsError('internal', 'فشل جلب إحصائيات لوحة القيادة.');
     }
 });
-
 // ==========================================
 // 🔍 المحرك الذكي الموحد لإيجاد العملاء (بالكود القصير، الطويل، الإيميل، الهاتف، اليوزر، أو الاسم)
 // ==========================================
-const findMatchingUserDocs = async (dbInstance, rawQueryStr, fetchLimit = 10, filterByTier = null) => {
+const findMatchingUserDocs = async (dbInstance, rawQueryStr, fetchLimit = 10, filterByTier = null, includeDeleted = false) => {
     const cleanQuery = String(rawQueryStr || '').trim();
     if (!cleanQuery) return [];
 
@@ -1766,7 +1778,7 @@ const findMatchingUserDocs = async (dbInstance, rawQueryStr, fetchLimit = 10, fi
     resultDocs.forEach(d => uniqueMap.set(d.id, d));
 
     return Array.from(uniqueMap.values())
-        .filter(doc => doc.data().isDeleted !== true)
+        .filter(doc => includeDeleted || doc.data().isDeleted !== true)
         .filter(doc => !filterByTier || doc.data().tierId === String(filterByTier));
 };
 
@@ -1811,9 +1823,9 @@ exports.adminGetOrdersList = onCall({ memory: "256MiB", timeoutSeconds: 60 }, as
             byExtSnap.docs.forEach(d => mergedOrdersMap.set(d.id, d));
             byInputSnap.docs.forEach(d => mergedOrdersMap.set(d.id, d));
 
-            // المرحلة 2: إذا لم يكن رقم طلب مباشر، نبحث عن العميل في telecard_users (بالكود القصير، الإيميل، الاسم، الهاتف، أو اليوزر) ونجلب طلباته!
+            // المرحلة 2: إذا لم يكن رقم طلب مباشر، نبحث عن العميل في telecard_users (بما في ذلك المحذوفين لمراجعة أرشيف طلباتهم بالكود القصير)
             if (mergedOrdersMap.size === 0) {
-                const matchedUserDocs = await findMatchingUserDocs(db, cleanSearch, 5);
+                const matchedUserDocs = await findMatchingUserDocs(db, cleanSearch, 5, null, true);
                 if (matchedUserDocs.length > 0) {
                     const userOrdersSnaps = await Promise.all(
                         matchedUserDocs.slice(0, 5).map(uDoc =>
@@ -1951,9 +1963,9 @@ exports.adminGetDepositsList = onCall({ memory: "256MiB", timeoutSeconds: 60 }, 
             byAdmPrefixSnap.docs.forEach(d => mergedDepsMap.set(d.id, d));
             byDirectUidSnap.docs.forEach(d => mergedDepsMap.set(d.id, d));
 
-            // إذا لم يكن رقم إيداع مباشر، نبحث عن العميل في telecard_users (بالكود القصير، الإيميل، الاسم، الهاتف، أو اليوزر) ونجلب إيداعاته!
+            // إذا لم يكن رقم إيداع مباشر، نبحث عن العميل في telecard_users (بما في ذلك المحذوفين لمراجعة أرشيف إيداعاتهم بالكود القصير)
             if (mergedDepsMap.size === 0) {
-                const matchedUserDocs = await findMatchingUserDocs(db, cleanSearch, 5);
+                const matchedUserDocs = await findMatchingUserDocs(db, cleanSearch, 5, null, true);
                 if (matchedUserDocs.length > 0) {
                     const userDepSnaps = await Promise.all(
                         matchedUserDocs.slice(0, 5).map(uDoc =>
@@ -2057,21 +2069,21 @@ exports.adminGetUsersList = onCall({ memory: "256MiB", timeoutSeconds: 60 }, asy
         const queryStr = String(searchQuery).trim();
         
         if (queryStr) {
-            const matchedDocs = await findMatchingUserDocs(dbInstance, queryStr, fetchLimit, filterByTier);
+            const matchedDocs = await findMatchingUserDocs(dbInstance, queryStr, fetchLimit, filterByTier, false);
             const users = matchedDocs.map(sanitizeUserForAdminList);
             return { success: true, data: users, pagination: { hasMore: false, lastDocId: null } };
         }
         let query = dbInstance.collection('telecard_users');
-if (filterByTier) {
-    query = query.where('tierId', '==', String(filterByTier));
-}
+        if (filterByTier) {
+            query = query.where('tierId', '==', String(filterByTier));
+        }
 
-let orderField = 'createdAt';
-if (sortCategory === 'spend_all') orderField = 'totalSpent';
-else if (sortCategory === 'orders_all') orderField = 'totalOrdersCount';
-const direction = (!filterByTier && sortDir === 'asc') ? 'asc' : 'desc';
+        let orderField = 'createdAt';
+        if (sortCategory === 'spend_all') orderField = 'totalSpent';
+        else if (sortCategory === 'orders_all') orderField = 'totalOrdersCount';
+        const direction = (!filterByTier && sortDir === 'asc') ? 'asc' : 'desc';
 
-query = query.orderBy(orderField, direction).orderBy(admin.firestore.FieldPath.documentId(), direction);        
+        query = query.orderBy(orderField, direction).orderBy(admin.firestore.FieldPath.documentId(), direction);        
         let cursorDocSnap = null;
         if (lastDocId) {
             const lastDocSnap = await dbInstance.collection('telecard_users').doc(String(lastDocId)).get();
@@ -2192,7 +2204,9 @@ exports.adminGetLogsList = onCall({ memory: "256MiB", timeoutSeconds: 60 }, asyn
     } catch (error) {
         throw new HttpsError('internal', 'فشل جلب السجلات الجنائية من السحابة.');
     }
-});// ==========================================
+});
+
+// ==========================================
 // 🧹 6. محرك الصيانة الليلي الموحد (المهمة المجدولة المجانية 1 من 3)
 // ==========================================
 const runWeeklyLedgerReconciliation = async () => {
@@ -2494,6 +2508,10 @@ exports.adminUpdateUserProfile = onCall({ enforceAppCheck: false }, async (reque
         
         const oldEmail = String(currentData.email || '').trim().toLowerCase();
         const oldPhone = String(currentData.phone || '').trim();
+        // 🛡️ حماية رقم هاتف العميل المسجل مسبقاً من المسح غير المقصود إذا لم يُمرر رقم جديد
+        if (!safePhone && oldPhone && oldPhone !== '---') {
+            safePhone = oldPhone;
+        }
         const emailChanged = cleanEmail !== oldEmail;
         const phoneChanged = Boolean(safePhone && safePhone !== oldPhone);
         
@@ -2599,29 +2617,76 @@ exports.adminDeleteUserData = onCall(async (request) => {
     }
     
     try {
-        const userSnap = await db.collection('telecard_users').doc(targetUid).get();
-        if (userSnap.exists && Number(userSnap.data().walletBalance || 0) > 0) {
-            throw new HttpsError('failed-precondition', 'لا يمكن حذف العميل: يوجد رصيد متبقٍ في محفظته. قم بتصفير الرصيد أولاً عبر الخصم الإداري.');
-        }
-        
-        const [activeOrdersSnap, pendingDepositsSnap] = await Promise.all([
-            db.collection('telecard_orders')
-                .where('userId', '==', targetUid)
-                .where('status', 'in', ['pending', 'processing'])
-                .limit(1).get(),
-            db.collection('telecard_deposits')
-                .where('userId', '==', targetUid)
-                .where('status', '==', 'pending')
-                .limit(1).get()
-        ]);
-        
-        if (!activeOrdersSnap.empty) {
-            throw new HttpsError('failed-precondition', 'لا يمكن حذف العميل: توجد طلبات قيد الانتظار أو المعالجة. قم بإنهاء أو رفض طلباته أولاً.');
-        }
-        if (!pendingDepositsSnap.empty) {
-            throw new HttpsError('failed-precondition', 'لا يمكن حذف العميل: توجد طلبات إيداع قيد الانتظار. قم برفض أو معالجة إيداعاته أولاً.');
-        }
-        
+        const userRef = db.collection('telecard_users').doc(targetUid);
+        const activeOrdersQuery = db.collection('telecard_orders')
+            .where('userId', '==', targetUid)
+            .where('status', 'in', ['pending', 'processing'])
+            .limit(1);
+        const pendingDepositsQuery = db.collection('telecard_deposits')
+            .where('userId', '==', targetUid)
+            .where('status', '==', 'pending')
+            .limit(1);
+
+        // 🛡️ 1. قفل الحساب وتصفير بياناته ذرياً داخل Transaction أولاً لمنع أي عملية متزامنة أو حذف مكرر
+        await db.runTransaction(async (transaction) => {
+            const [userSnap, activeOrdersSnap, pendingDepositsSnap] = await Promise.all([
+                transaction.get(userRef),
+                transaction.get(activeOrdersQuery),
+                transaction.get(pendingDepositsQuery)
+            ]);
+
+            if (!userSnap.exists) {
+                throw new HttpsError('not-found', 'العميل غير موجود في قاعدة البيانات.');
+            }
+            const uData = userSnap.data();
+
+            if (uData.isDeleted === true) {
+                throw new HttpsError('already-exists', 'تم حذف هذا الحساب نهائياً في وقت سابق.');
+            }
+            if (Number(uData.walletBalance || 0) > 0) {
+                throw new HttpsError('failed-precondition', 'لا يمكن حذف العميل: يوجد رصيد متبقٍ في محفظته. قم بتصفير الرصيد أولاً عبر الخصم الإداري.');
+            }
+            if (!activeOrdersSnap.empty) {
+                throw new HttpsError('failed-precondition', 'لا يمكن حذف العميل: توجد طلبات قيد الانتظار أو المعالجة. قم بإنهاء أو رفض طلباته أولاً.');
+            }
+            if (!pendingDepositsSnap.empty) {
+                throw new HttpsError('failed-precondition', 'لا يمكن حذف العميل: توجد طلبات إيداع قيد الانتظار. قم برفض أو معالجة إيداعاته أولاً.');
+            }
+
+            transaction.update(userRef, {
+                email: `deleted_${targetUid.substring(0, 5)}@system.local`,
+                fullName: 'حساب محذوف',
+                firstName: 'محذوف',
+                lastName: '',
+                phone: '---',
+                country: '---',
+                isDeleted: true,
+                isVerified: false,
+                isBanned: true,
+                isDormant: true,
+                lastOrderTime: 0,
+                totalSpent: 0,
+                totalOrdersCount: 0,
+                archivedTotalSpent: admin.firestore.FieldValue.increment(Number(uData.totalSpent || 0)),
+                banReason: 'Deleted by Admin',
+                tierId: 'DELETED',
+                cycleStartTierId: 'DELETED',
+                tierClimbs: [], // 🛡️ تصفير قائمة الترقيات
+                devicePrints: [], // 🛡️ تصفير بصمات الأجهزة
+                tierCycleSpent: 0,
+                manualTierOverride: true,
+                kycStatus: 'none',
+                kycData: admin.firestore.FieldValue.delete(),
+                profileImage: admin.firestore.FieldValue.delete(),
+                apiKeyHash: admin.firestore.FieldValue.delete(),
+                webhookUrl: admin.firestore.FieldValue.delete(),
+                webhookSecret: admin.firestore.FieldValue.delete(),
+                fcmTokens: [],
+                deletedAt: admin.firestore.FieldValue.serverTimestamp()
+            });
+        });
+
+        // 🛡️ 2. بعد قفل الحساب في Firestore بأمان، نحذف حساب المصادقة والملفات السحابية
         try {
             await admin.auth().deleteUser(targetUid);
         } catch (authError) {
@@ -2644,40 +2709,6 @@ exports.adminDeleteUserData = onCall(async (request) => {
                 await kycBatch.commit();
             }
         } catch (kycErr) {}
-        
-        if (userSnap.exists) {
-            await db.collection('telecard_users').doc(targetUid).update({
-                email: `deleted_${targetUid.substring(0, 5)}@system.local`,
-                fullName: 'حساب محذوف',
-                firstName: 'محذوف',
-                lastName: '',
-                phone: '---',
-                country: '---',
-                isDeleted: true,
-                isVerified: false,
-                isBanned: true,
-                isDormant: true,
-                lastOrderTime: 0,
-                totalSpent: 0,
-                totalOrdersCount: 0,
-                archivedTotalSpent: admin.firestore.FieldValue.increment(Number(userSnap.data().totalSpent || 0)),
-                banReason: 'Deleted by Admin',
-                tierId: 'DELETED',
-                cycleStartTierId: 'DELETED',
-                tierClimbs: [], // 🛡️ تصفير قائمة الترقيات
-                devicePrints: [], // 🛡️ تصفير بصمات الأجهزة
-                tierCycleSpent: 0,
-                manualTierOverride: true,
-                kycStatus: 'none',
-                kycData: admin.firestore.FieldValue.delete(),
-                profileImage: admin.firestore.FieldValue.delete(),
-                apiKeyHash: admin.firestore.FieldValue.delete(),
-                webhookUrl: admin.firestore.FieldValue.delete(),
-                webhookSecret: admin.firestore.FieldValue.delete(),
-                fcmTokens: [],
-                deletedAt: admin.firestore.FieldValue.serverTimestamp()
-            });
-        }
         
         const notifsRef = db.collection('telecard_users').doc(targetUid).collection('notifications');
         let hasMore = true;

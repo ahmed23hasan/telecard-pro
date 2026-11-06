@@ -5,6 +5,7 @@
 // 1. Escaping Fix 🛡️: تصحيح دالة التعقيم (Sanitization) في الشروط والأحكام لمنع XSS.
 // 2. Developer Bridges 🌉: إضافة مسارات إظهار الباسوورد للـ Developer API.
 // 3. Strict Module Exposure 📦: التأكد من توفر جميع الوحدات الفرعية للموجه المركزي.
+// 4. Utility Bridge 🛠️: تمرير دالة base64ToBlob لوحدات النظام الفرعية الأخرى.
 // ============================================================================
 
 import { UIService } from './core/uiService.js';
@@ -66,37 +67,38 @@ export const AdminUI = {
     clearImg: (...args) => UIService.clearImg(...args),
     handleImageUpload: (...args) => UIService.handleImageUpload(...args),
     processImage: (...args) => UIService.processImage(...args),
+    base64ToBlob: (...args) => UIService.base64ToBlob(...args),
     
     // =========================================================
     // 🔄 4. تحديثات النظام العامة (System Views & States)
     // =========================================================
     clearAllSearchAndFiltersUI: function() {
-    document.querySelectorAll('input[id^="search-"], input[id="user-search"]').forEach(input => { if (input) input.value = ''; });
-    document.querySelectorAll('[id^="date-start-"], [id^="date-end-"]').forEach(el => {
-        if (el) {
-            el.innerText = 'DD/MM/YYYY';
-            el.classList.add('placeholder-text');
-            el.closest('.custom-field')?.classList.remove('active');
-        }
-    });
-    document.querySelectorAll('.qf-btn').forEach(btn => {
-        const isAll = btn.dataset.range === 'all';
-        btn.classList.toggle('active', isAll);
-        btn.classList.remove('border-gold', 'text-gold');
-    });
-    
-    EventBus.emit('req-clear-render-filters');
-    
-    document.querySelectorAll('.main-tabs-header').forEach(container => {
-        container.scrollLeft = 0;
-        if (container.scrollWidth > 0) container.scrollLeft = container.scrollWidth;
-        const btns = container.querySelectorAll('.main-tab-btn');
-        if (btns.length > 0) {
-            btns.forEach(b => b.classList.remove('active'));
-            btns[0].classList.add('active');
-        }
-    });
-},
+        document.querySelectorAll('input[id^="search-"], input[id="user-search"]').forEach(input => { if (input) input.value = ''; });
+        document.querySelectorAll('[id^="date-start-"], [id^="date-end-"]').forEach(el => {
+            if (el) {
+                el.innerText = 'DD/MM/YYYY';
+                el.classList.add('placeholder-text');
+                el.closest('.custom-field')?.classList.remove('active');
+            }
+        });
+        
+        document.querySelectorAll('.qf-btn').forEach(btn => {
+            const isAll = btn.dataset.range === 'all';
+            btn.classList.toggle('active', isAll);
+        });
+        
+        EventBus.emit('req-clear-render-filters');
+        
+        document.querySelectorAll('.main-tabs-header').forEach(container => {
+            container.scrollLeft = 0;
+            if (container.scrollWidth > 0) container.scrollLeft = container.scrollWidth;
+            const btns = container.querySelectorAll('.main-tab-btn');
+            if (btns.length > 0) {
+                btns.forEach(b => b.classList.remove('active'));
+                btns[0].classList.add('active');
+            }
+        });
+    },
     updateQuickDateUI: function(start, end, section) {
         const formatDisp = (d) => d ? `${String(d.getDate()).padStart(2,'0')}/${String(d.getMonth()+1).padStart(2,'0')}/${d.getFullYear()}` : 'DD/MM/YYYY';
         const startEl = document.getElementById(`date-start-${section}`); 
@@ -150,50 +152,12 @@ export const AdminUI = {
             if (currToggle) currToggle.checked = data?.settings?.showCurrencyToggle !== false; 
         }
         else if (id === 'tiers') {
-            safeSetVal('setting-tier-paused-msg', data?.settings?.tierPausedMsg || '');
-        }
-        else if (id === 'ads') {
-            const s = data?.settings || {};
-            const sys = data?.system || {}; 
-            
-            safeSetVal('promo-text', s.tickerText || s.promoText || ''); 
-            safeSetVal('slider-time', s.sliderTime || s.sliderDuration || 3); 
-            safeSetVal('promo-speed', s.tickerSpeed || s.promoAnim || 'horizontal-normal');
-            safeSetVal('store-name-input', s.storeName || sys.storeName || ''); 
-            safeSetVal('store-logo-size', s.storeLogoSize || sys.logoSize || 36);
-            
-            const lsv = document.getElementById('logo-size-val'); 
-            if (lsv) lsv.innerText = (s.storeLogoSize || sys.logoSize || 36) + 'px';
-            
-            safeSetVal('store-name-weight', s.storeNameWeight || sys.nameWeight || '900'); 
-            safeSetVal('store-color-type', s.storeColorType || sys.nameColorType || 'solid');
-            safeSetVal('store-color-1', s.storeColor1 || sys.nameColor1 || '#ffffff'); 
-            safeSetVal('store-color-2', s.storeColor2 || sys.nameColor2 || '#FFD700');
-            
-            const shadowEl = document.getElementById('store-name-shadow'); 
-            if (shadowEl) shadowEl.checked = Boolean(s.storeNameShadow ?? sys.nameShadow);
-            
-            const setImgPreview = (imgId, src) => {
-                const preview = document.getElementById(`${imgId}-preview`), wrap = document.getElementById(`${imgId}-wrap`);
-                if (src && preview && wrap) { 
-                    preview.src = src; 
-                    preview.classList.remove('hide-element'); 
-                    preview.style.display = 'block';
-                    wrap.classList.add('has-img'); 
-                } else { 
-                    this.clearImg(`${imgId}-preview`, `${imgId}-wrap`, `${imgId}-input`); 
-                }
-            };
-            
-            setImgPreview('store-logo', s.storeLogo || sys.storeLogo); 
-            setImgPreview('store-logo-light', s.storeLogoLight || sys.storeLogoLight); 
-            setImgPreview('store-favicon', s.storeFavicon || sys.storeFavicon);
-            
-            this.toggleColorType();
-            this.updateBrandPreview();
-            EventBus.emit('req-render-banners');
-        }
-        else if (id === 'sys') {
+    safeSetVal('setting-tier-paused-msg', data?.settings?.tierPausedMsg || '');
+}
+else if (id === 'ads') {
+    EventBus.emit('req-render-banners');
+}
+else if (id === 'sys') {
             const s = data?.system || {};
             const sysToggle = document.getElementById('sys-maint-toggle');
             const sysDateTxt = document.getElementById('date-maint-sys');
@@ -401,10 +365,12 @@ export const AdminUI = {
         if (logoImg) { 
             if (imgSrc) { 
                 logoImg.src = imgSrc; 
-                logoImg.style.display = 'block'; 
+                logoImg.classList.remove('hide-element');
                 logoImg.style.maxHeight = logoSize + 'px'; 
             } 
-            else { logoImg.style.display = 'none'; } 
+            else { 
+                logoImg.classList.add('hide-element'); 
+            } 
         }
         
         if (nameText) {
@@ -449,15 +415,15 @@ export const AdminUI = {
             `).join('');
         
         const html = `
-                <div class="panel-card term-builder-card mb-15 p-15" id="${cardId}">
+                <div class="card term-builder-card mb-15 p-15" id="${cardId}">
                     
                     <div class="term-card-header">
                         <div class="term-drag-handle">
-                            <i class="fa-solid fa-grip-vertical"></i>
+                            <i class="fa-solid fa-grip-vertical me-1"></i>
                             <span>سحب للترتيب</span>
                         </div>
-                        <button type="button" class="btn-micro btn-red interactive-scale term-del-btn" title="إزالة">
-                            <i class="fa-solid fa-trash"></i>
+                        <button type="button" class="btn btn-compact btn-outline-danger interactive-scale term-del-btn" title="إزالة">
+                            <i class="fa-solid fa-trash me-1"></i>
                             <span>إزالة</span>
                         </button>
                     </div>
@@ -495,23 +461,21 @@ export const AdminUI = {
     },    
 
     getTermsDataFromUI: function() {
-        const cards = document.querySelectorAll('.term-builder-card');
-        const termsArray = [];
-        
-        cards.forEach(card => {
-            const title = card.querySelector('.term-title-input').value.trim();
-            const text = card.querySelector('.term-text-input').value.trim();
-            const icon = card.querySelector('.term-icon-input').value;
-            
-            if (title || text) {
-                termsArray.push({ title, text, icon });
-            }
-        });
-        
-        return termsArray;
-    },
+    const cards = document.querySelectorAll('.term-builder-card');
+    const termsArray = [];
     
-    selectTermIconUI: function(element, val) {
+    cards.forEach(card => {
+        const title = card.querySelector('.term-title-input')?.value?.trim() || '';
+        const text = card.querySelector('.term-text-input')?.value?.trim() || '';
+        const icon = card.querySelector('.term-icon-input')?.value || 'fa-check';
+        
+        if (title || text) {
+            termsArray.push({ title, text, icon });
+        }
+    });
+    
+    return termsArray;
+},    selectTermIconUI: function(element, val) {
         if (!element) return;
         const parent = element.closest('.icon-selector');
         if (parent) {

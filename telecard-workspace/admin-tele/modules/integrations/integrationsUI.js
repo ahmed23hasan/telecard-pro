@@ -1,11 +1,6 @@
 // ============================================================================
-// 🔌 واجهة الربط التفاعلية (modules/integrations/integrationsUI.js) - V20.0 💎
-// 🎯 الوظيفة: إدارة نوافذ الموردين وتوليد القوائم الديناميكية
-// 🚀 التحديثات المعمارية (V20.0 - Dynamic Rates & Zero Jitter):
-// 1. Dynamic Rates Injection 💱: تمرير أسعار الصرف الحية للقالب لتوليد قائمة العملات ديناميكياً.
-// 2. Lazy DOM Injection 📦: توليد نوافذ الموردين والتالف من العدم لتخفيف الذاكرة.
-// 3. Smart Garbage Collector 🧹: إضافة ختم (dynamic-auto-destroy) لتدمير النوافذ ذاتياً بعد الإغلاق.
-// 4. Zero Jitter Shield 🛡️: إجبار المتصفح على حساب الأبعاد (offsetWidth) لمنع التمدد.
+// 🔌 واجهة الربط التفاعلية (modules/integrations/integrationsUI.js) - V20.5 💎
+// 🎯 الوظيفة: إدارة نوافذ الموردين، البحث الفوري في الكتالوج، وتوليد القوائم الديناميكية
 // ============================================================================
 
 import { AdminData } from '../../adminData.js';
@@ -16,7 +11,6 @@ export const IntegrationsUI = {
     openSupplierModal: function(id = null) {
         try {
             const supplier = id ? (AdminData.data.suppliersMap?.[id] || (AdminData.data.suppliers || []).find(s => String(s.id) === String(id))) : null;
-            // 🚀 جلب العملات الحية المعتمدة في المتجر لتمريرها للقالب
             const rates = AdminData.data.rates || [];
             
             let modal = document.getElementById('m-supplier');
@@ -29,12 +23,7 @@ export const IntegrationsUI = {
             
             modal.innerHTML = IntegrationsTemplates.supplierModal(supplier, rates);
             
-            void modal.offsetWidth; // 🛡️ منع الرجفة
-            
-            requestAnimationFrame(() => {
-                modal.classList.add('active');
-            });
-            
+            void modal.offsetWidth;
             EventBus.emit('req-open-modal', 'supplier');
             
         } catch (error) {
@@ -65,17 +54,46 @@ export const IntegrationsUI = {
             
             overlay.innerHTML = IntegrationsTemplates.supplierDefectsModal(supplierId, supplierName, defects, hasMore);
             
-            void overlay.offsetWidth; // 🛡️ منع الرجفة
-            
-            requestAnimationFrame(() => {
-                overlay.classList.add('active');
-            });
+            void overlay.offsetWidth;
+            EventBus.emit('req-open-modal', 'supplier-defects-overlay');
         }
     },
     
     closeDefectsModal: function() {
         if (window.AdminUI && window.AdminUI.closeModal) {
             window.AdminUI.closeModal('supplier-defects-overlay');
+        }
+    },
+    
+    filterSupplierCatalogModal: function(searchTerm = '') {
+        const listContainer = document.getElementById('supp-catalog-items-list');
+        if (!listContainer) return;
+        
+        const term = String(searchTerm || '').toLowerCase().trim();
+        const rows = listContainer.querySelectorAll('.supp-cat-item-row');
+        let visibleCount = 0;
+        
+        rows.forEach(row => {
+            const text = row.innerText.toLowerCase();
+            if (!term || text.includes(term)) {
+                row.classList.remove('hide-element');
+                visibleCount++;
+            } else {
+                row.classList.add('hide-element');
+            }
+        });
+        
+        let emptyEl = document.getElementById('supp-cat-empty-search');
+        if (visibleCount === 0 && rows.length > 0 && term !== '') {
+            if (!emptyEl) {
+                emptyEl = document.createElement('div');
+                emptyEl.id = 'supp-cat-empty-search';
+                emptyEl.className = 'empty-state mt-10';
+                emptyEl.innerHTML = `<i class="fa-solid fa-magnifying-glass"></i><span>لا توجد منتجات تطابق بحثك...</span>`;
+                listContainer.appendChild(emptyEl);
+            }
+        } else if (emptyEl) {
+            emptyEl.remove();
         }
     }
 };

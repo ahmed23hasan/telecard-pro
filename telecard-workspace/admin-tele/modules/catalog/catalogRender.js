@@ -1,12 +1,12 @@
 // ============================================================================
-// 📦 محرك رسم المنتجات والكتالوج (modules/catalog/catalogRender.js) - Cloud-Native V20.0 💎
+// 📦 محرك رسم المنتجات والكتالوج (modules/catalog/catalogRender.js) - Cloud-Native V20.1 💎
 // 🎯 الوظيفة: رسم الأقسام، المنتجات، إعدادات المنتجات، الخزنة المركزية، والبلدان
-// 🚀 التحديثات المعمارية (V20.0 - Unified Schema & Safe Folder Matching): 
-// 1. Safe Category Matching 📂: دعم (categoryId || catId) لمنع اختفاء المنتجات المضافة حديثاً.
-// 2. Schema Alignment 🔗: قراءة الصور الموحدة (img/image) والترتيب الموحد (order/sortOrder).
-// 3. Vault Accountant Card Sync 💰: رسم بطاقات الخزنة مع تكلفة الكود الواحد وقيمة الأصول المجمدة.
-// 4. Render Token & UI Protection 🛡️: منع تداخل دورات الرسم السريعة وحماية خيط الواجهة.
-// 5. Simple Product Preview Fix 🐛: إظهار معاينة أسعار المستويات للمنتجات البسيطة.
+// 🌟 التحديثات المعمارية: 
+// 1. Standard Loader State ⏳: استبدال كود التحميل العشوائي (.p-20) بحاوية .empty-state القياسية لتتوسط شبكة المنتجات.
+// 2. Safe Category Matching 📂: دعم (categoryId || catId) لمنع اختفاء المنتجات المضافة حديثاً.
+// 3. Schema Alignment 🔗: قراءة الصور الموحدة (img/image) والترتيب الموحد (order/sortOrder).
+// 4. Vault Accountant Card Sync 💰: رسم بطاقات الخزنة مع تكلفة الكود الواحد وقيمة الأصول المجمدة.
+// 5. Render Token & UI Protection 🛡️: منع تداخل دورات الرسم السريعة وحماية خيط الواجهة.
 // ============================================================================
 
 import { AdminData } from '../../adminData.js';
@@ -20,23 +20,22 @@ export const CatalogRender = {
     _listenersBound: false,
     
     initListeners: function() {
-        if (this._listenersBound) return;
-        this._listenersBound = true;
-        
-        EventBus.on('state-update', (newState) => { this.state = { ...this.state, ...newState }; });
-        EventBus.on('req-update-price-preview', () => {
-            const type = Utils.getVal('pr-type', 'simple');
-            const cost = parseFloat(Utils.getVal('pr-cost', 0)) || 0;
-            const tiers = AdminData.data.tiers || [];
-            window.AdminUI?.CatalogUI?.renderPricePreview?.(type, cost, tiers, this.state.tempPackages || [], window.FinancialEngine);
-        });
-        EventBus.on('req-toggle-simple-qty', () => {
-            const isChecked = document.getElementById('pr-allow-qty')?.checked || false;
-            window.AdminUI?.CatalogUI?.toggleSimpleQty?.(isChecked);
-        });
-    },
-
-    // =========================================================
+    if (this._listenersBound) return;
+    this._listenersBound = true;
+    
+    EventBus.on('state-update', (newState) => { this.state = { ...this.state, ...newState }; });
+    EventBus.on('req-render-pkg-list', () => this.renderPkgList());
+    EventBus.on('req-update-price-preview', () => {
+        const type = Utils.getVal('pr-type', 'simple');
+        const cost = parseFloat(Utils.getVal('pr-cost', 0)) || 0;
+        const tiers = AdminData.data.tiers || [];
+        window.AdminUI?.CatalogUI?.renderPricePreview?.(type, cost, tiers, this.state.tempPackages || [], window.FinancialEngine);
+    });
+    EventBus.on('req-toggle-simple-qty', () => {
+        const isChecked = document.getElementById('pr-allow-qty')?.checked || false;
+        window.AdminUI?.CatalogUI?.toggleSimpleQty?.(isChecked);
+    });
+},    // =========================================================
     // 📦 1. رسم شبكة المنتجات والأقسام
     // =========================================================
     renderProds: function(forceRender = false) {
@@ -61,7 +60,7 @@ export const CatalogRender = {
             grid.style.setProperty('--layout-cols', currentLayout);
             const dragClass = this.state.dragEditMode ? 'drag-enabled' : '';
 
-            grid.innerHTML = '<div class="w-100 text-center p-20 text-muted"><i class="fa-solid fa-circle-notch fa-spin"></i> جاري رسم المنتجات...</div>';
+            grid.innerHTML = '<div class="empty-state"><i class="fa-solid fa-circle-notch fa-spin"></i><span>جاري رسم المنتجات...</span></div>';
 
             this._renderToken = Date.now();
             const currentToken = this._renderToken;

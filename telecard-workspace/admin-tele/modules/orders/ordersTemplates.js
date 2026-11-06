@@ -1,9 +1,6 @@
 // ============================================================================
-// 📦 قوالب الطلبات (modules/orders/ordersTemplates.js) - النسخة الماسية V16.0 💎
+// 📦 قوالب الطلبات (modules/orders/ordersTemplates.js) - النسخة الماسية V16.1 💎
 // 🎯 الوظيفة: توليد بطاقات الطلبات، الدرج الجانبي الجنائي، والتحليل المالي الذكي.
-// 🚀 التحديث (V16.0 - Accurate Source Badges & Late Supplier Code Alert):
-// 1. Unified Source Detection 🔌: التمييز الدقيق بين (API / مورد / آلي خزنة / يدوي) حتى للطلبات المعلقة والمرفوضة.
-// 2. Late Supplier Code Badge 🚨: إظهار تنبيه بصري مباشر على البطاقة الخارجية إذا وصل كود متأخر من المورد لطلب مرفوض.
 // ============================================================================
 
 import { Utils } from '../../adminUtils.js';
@@ -16,9 +13,8 @@ const _enNum = Utils.enNum;
 export const OrdersTemplates = {
     
     ordersSourceFilters: (activeState) => `
-        <div class="mb-15">
-            <div class="flex-between align-items-center w-100 mb-15 px-2">
-                <div class="filter-label-framed">
+        <div class="grid-col-full mb-5">
+            <div class="flex-between w-100 mb-15">            <div class="filter-label-framed">
                     <i class="fa-solid fa-filter me-1"></i> تصفية حسب المصدر
                 </div>
                 <button class="btn btn-outline-danger btn-compact interactive-scale" data-action="reject-all-pending" title="رفض جميع الطلبات اليدوية المعلقة وإرجاع الرصيد للعملاء">
@@ -92,13 +88,13 @@ export const OrdersTemplates = {
         const isAuto = (!isApi && !isSupplier && Boolean(o.vaultPoolId || o.isAutoDelivered));
         
         let sourceBadgeHtml = '';
-        if (isApi) sourceBadgeHtml += `<span class="badge bg-dark text-warning fs-10 ms-2"><i class="fa-solid fa-code me-1"></i> API</span>`;
-        if (isSupplier) sourceBadgeHtml += `<span class="badge bg-info-subtle text-info border border-info-subtle fs-10 ms-1"><i class="fa-solid fa-plug me-1"></i> مورد</span>`;
-        else if (isAuto) sourceBadgeHtml += `<span class="badge bg-success-subtle text-success border border-success-subtle fs-10 ms-2"><i class="fa-solid fa-robot me-1"></i> آلي</span>`;
-        else if (!isApi) sourceBadgeHtml += `<span class="badge bg-warning-subtle text-warning border border-warning-subtle fs-10 ms-2"><i class="fa-solid fa-hand-paper me-1"></i> يدوي</span>`;
+        if (isApi) sourceBadgeHtml += `<span class="badge-source-api fs-10 ms-1"><i class="fa-solid fa-code me-1"></i> API</span>`;
+        if (isSupplier) sourceBadgeHtml += `<span class="badge-source-supplier fs-10 ms-1"><i class="fa-solid fa-plug me-1"></i> مورد</span>`;
+        else if (isAuto) sourceBadgeHtml += `<span class="badge-source-auto fs-10 ms-1"><i class="fa-solid fa-robot me-1"></i> آلي</span>`;
+        else if (!isApi) sourceBadgeHtml += `<span class="badge-source-manual fs-10 ms-1"><i class="fa-solid fa-hand-paper me-1"></i> يدوي</span>`;
 
         if (o.lateSupplierCode) {
-            sourceBadgeHtml += `<span class="badge bg-danger text-white fs-10 ms-1" title="وصل كود من المورد بعد رفض الطلب! افتح التفاصيل"><i class="fa-solid fa-triangle-exclamation me-1"></i> كود متأخر</span>`;
+            sourceBadgeHtml += `<span class="badge-source-danger fs-10 ms-1" title="وصل كود من المورد بعد رفض الطلب! افتح التفاصيل"><i class="fa-solid fa-triangle-exclamation me-1"></i> كود متأخر</span>`;
         }
 
         return `
@@ -160,7 +156,7 @@ export const OrdersTemplates = {
                 <div class="cr-icon"><i class="fa-solid fa-copy"></i></div>
             </div>`).join(''); 
         return `
-        <div class="dr-card" style="border-color: var(--primary); background: linear-gradient(145deg, var(--primary-glow), var(--bg-card));">
+        <div class="dr-card dr-primary-box">
             <div class="dr-inputs-title text-primary"><i class="fa-solid fa-keyboard me-1"></i> بيانات الطلب المُدخلة</div>
             <div class="dr-inputs-list">${inputsHtml}</div>
         </div>`; 
@@ -199,18 +195,20 @@ export const OrdersTemplates = {
         const isRefundedOrRejected = ['refunded', 'rejected', 'returned'].includes(status);
         
         const localCurr = String(order.priceCurrency || 'USD').toUpperCase();
-const localDeducted = Number(order.priceLocalDeducted ?? order.price ?? 0);
-const baseUsd = Number(order.priceBaseUsd ?? snap.totalFinalPrice ?? 0);
-const usdRatio = (localCurr !== 'USD' && localDeducted > 0 && baseUsd > 0) ? (baseUsd / localDeducted) : 1;
+        const localDeducted = Number(order.priceLocalDeducted ?? order.price ?? 0);
+        const baseUsd = Number(order.priceBaseUsd ?? snap.totalFinalPrice ?? 0);
+        const usdRatio = (localCurr !== 'USD' && localDeducted > 0 && baseUsd > 0) ? (baseUsd / localDeducted) : 1;
 
-const sFinalPrice = baseUsd > 0 ? baseUsd : Number((snap.finalPrice ?? order.price ?? 0) * usdRatio);
-const sCost = Number(snap.totalCostUsd ?? snap.costUsd ?? 0);
-const sOfferDisc = Number(snap.totalOfferDiscount ?? ((Number(snap.offerDiscount || 0)) * usdRatio));
-const sCouponDisc = Number(snap.totalCouponDiscount ?? ((Number(snap.couponDiscount || 0)) * usdRatio));
-const rawOrigLocal = Number(snap.totalOriginalPrice ?? snap.originalPrice ?? 0);
-const sTierPrice = rawOrigLocal > 0 ? (snap.totalOriginalPrice !== undefined ? rawOrigLocal : (rawOrigLocal * usdRatio)) : (sFinalPrice + sOfferDisc + sCouponDisc);
-const sProfit = Number(snap.totalNetProfitUsd ?? snap.netProfitUsd ?? (sCost > 0 ? Math.max(0, sFinalPrice - sCost) : 0));
-const sMargin = Number(snap.marginPct ?? (sFinalPrice > 0 && sCost > 0 ? ((sProfit / sFinalPrice) * 100) : 0));
+        const sFinalPrice = baseUsd > 0 ? baseUsd : Number((snap.finalPrice ?? order.price ?? 0) * usdRatio);
+        const qty = order.qty || 1; // 🚀 قراءة الكمية
+        const sCost = Number(snap.totalCostUsd ?? (snap.costUsd !== undefined ? Number(snap.costUsd) * qty : (snap.cost || 0))); // 🚀 قراءة التكلفة الإجمالية بشكل سليم
+        const sOfferDisc = Number(snap.totalOfferDiscount ?? ((Number(snap.offerDiscount || 0)) * usdRatio));
+        const sCouponDisc = Number(snap.totalCouponDiscount ?? ((Number(snap.couponDiscount || 0)) * usdRatio));
+        const rawOrigLocal = Number(snap.totalOriginalPrice ?? snap.originalPrice ?? 0);
+        const sTierPrice = rawOrigLocal > 0 ? (snap.totalOriginalPrice !== undefined ? rawOrigLocal : (rawOrigLocal * usdRatio)) : (sFinalPrice + sOfferDisc + sCouponDisc);
+        const sProfit = Number(snap.totalNetProfitUsd ?? (snap.netProfitUsd !== undefined ? Number(snap.netProfitUsd) * qty : (snap.profit ?? (sCost > 0 ? Math.max(0, sFinalPrice - sCost) : 0)))); // 🚀 قراءة الربح الإجمالي بشكل سليم
+        const sMargin = Number(snap.marginPct ?? (sFinalPrice > 0 && sCost > 0 ? ((sProfit / sFinalPrice) * 100) : 0));
+        
         const localSubHtml = (localCurr !== 'USD' && localDeducted > 0)
             ? ` <span class="fs-11 text-muted">(${RenderHelpers.formatMoney(localDeducted, localCurr, 2)})</span>`
             : '';
@@ -261,7 +259,7 @@ const sMargin = Number(snap.marginPct ?? (sFinalPrice > 0 && sCost > 0 ? ((sProf
         const formattedTierName = resolvedTierName ? `(${_esc(resolvedTierName)})` : '(السعر الأساسي)';
         
         return `
-            <div class="financial-snapshot-box mb-15 financial-snapshot-container" style="border-color: var(--primary); background: linear-gradient(145deg, var(--primary-glow), var(--bg-card));">
+            <div class="financial-snapshot-box mb-15 financial-snapshot-container dr-primary-box">
                 <div class="fs-13 fw-bold text-primary mb-10"><i class="fa-solid fa-microchip me-1"></i> التحليل المالي الذكي للطلب</div>
                 
                 <div class="dr-receipt-row">
@@ -314,7 +312,7 @@ const sMargin = Number(snap.marginPct ?? (sFinalPrice > 0 && sCost > 0 ? ((sProf
         <div class="dr-card dr-client interactive-scale" data-action="view-user" data-id="${_esc(data.userId)}">
             <div class="dr-client-left">
                 ${data.avatarHtml}
-                <div class="d-flex align-items-center">${drawerIdentityHtml}</div>
+                <div class="flex-align-center">${drawerIdentityHtml}</div>
             </div>
             <i class="fa-solid fa-chevron-left dr-client-icon"></i>
         </div>
@@ -380,36 +378,30 @@ const sMargin = Number(snap.marginPct ?? (sFinalPrice > 0 && sCost > 0 ? ((sProf
         if (status === 'pending' || status === 'processing') {
             if (isApi) {
                 return `
-                <div class="modal-actions-row m-0 p-0 border-0">
-                    <button class="btn btn-primary interactive-scale w-100" data-action="submit-order" data-type="accept" data-id="${_esc(orderId)}" title="تحذير: هذا سيوقف أتمتة المورد وتضطر لتسليمه يدوياً">
-                        <i class="fa-solid fa-triangle-exclamation me-1"></i> تخطي الـ API (إكمال يدوي)
-                    </button>
-                    <button class="btn btn-outline-danger interactive-scale w-100" data-action="submit-order" data-type="reject" data-id="${_esc(orderId)}">
-                        <i class="fa-solid fa-xmark me-1"></i> رفض
-                    </button>
-                </div>`;
+                <button class="btn btn-primary interactive-scale flex-1" data-action="submit-order" data-type="accept" data-id="${_esc(orderId)}" title="تحذير: هذا سيوقف أتمتة المورد وتضطر لتسليمه يدوياً">
+                    <i class="fa-solid fa-triangle-exclamation me-1"></i> تخطي الـ API (إكمال يدوي)
+                </button>
+                <button class="btn btn-outline-danger interactive-scale flex-1" data-action="submit-order" data-type="reject" data-id="${_esc(orderId)}">
+                    <i class="fa-solid fa-xmark me-1"></i> رفض
+                </button>`;
             } else {
                 return `
-                <div class="modal-actions-row m-0 p-0 border-0">
-                    <button class="btn btn-primary interactive-scale w-100" data-action="submit-order" data-type="accept" data-id="${_esc(orderId)}">
-                        <i class="fa-solid fa-check me-1"></i> قبول وتسليم
-                    </button>
-                    <button class="btn btn-outline-danger interactive-scale w-100" data-action="submit-order" data-type="reject" data-id="${_esc(orderId)}">
-                        <i class="fa-solid fa-xmark me-1"></i> رفض
-                    </button>
-                </div>`;
+                <button class="btn btn-primary interactive-scale flex-1" data-action="submit-order" data-type="accept" data-id="${_esc(orderId)}">
+                    <i class="fa-solid fa-check me-1"></i> قبول وتسليم
+                </button>
+                <button class="btn btn-outline-danger interactive-scale flex-1" data-action="submit-order" data-type="reject" data-id="${_esc(orderId)}">
+                    <i class="fa-solid fa-xmark me-1"></i> رفض
+                </button>`;
             }
         } else if (status === 'completed') {
             return `
-            <div class="modal-actions-row m-0 p-0 border-0">
-                <button class="btn btn-outline-danger interactive-scale w-100" data-action="request-order-refund" data-id="${_esc(orderId)}">
-                    <i class="fa-solid fa-rotate-left me-1"></i> استرجاع وإلغاء الطلب
-                </button>
-            </div>`;
+            <button class="btn btn-outline-danger interactive-scale flex-1" data-action="request-order-refund" data-id="${_esc(orderId)}">
+                <i class="fa-solid fa-rotate-left me-1"></i> استرجاع وإلغاء الطلب
+            </button>`;
         } else {
             return `
             <div class="drawer-locked-msg">
-                <i class="fa-solid fa-lock icon-ms-1"></i> هذا الطلب مغلق (${status === 'rejected' ? 'مرفوض' : 'مسترجع'})
+                <i class="fa-solid fa-lock me-1"></i> هذا الطلب مغلق (${status === 'rejected' ? 'مرفوض' : 'مسترجع'})
             </div>`;
         }
     },
@@ -423,14 +415,14 @@ const sMargin = Number(snap.marginPct ?? (sFinalPrice > 0 && sCost > 0 ? ((sProf
                 <div class="drawer-body" id="drawer-body-content">
                 </div>
                 
-                <div class="dr-card mt-15" id="order-note-wrapper">
+                <div class="dr-card drawer-note-area mt-15" id="order-note-wrapper">
                     <!-- 🚀 1. حقل كود البطاقة للطلبات اليدوية -->
                     <div class="form-group mb-10" id="order-delivered-code-group">
                         <label class="form-label fs-12 text-success fw-bold">
                             <i class="fa-solid fa-barcode me-1"></i> كود البطاقة / الكوبون المـُسلّم للعميل (اختياري)
                         </label>
                         <input type="text" id="order-modal-delivered-code" class="form-input num-en font-numeric" dir="ltr" placeholder="أدخل كود البطاقة هنا (مثال: ABCD-1234-EFGH)">
-                        <small class="text-muted fs-10 d-block mt-4"><i class="fa-solid fa-circle-info me-1"></i> اتركه فارغاً إذا كان المنتج شحناً مباشراً للألعاب (بدون كود).</small>
+                        <small class="text-muted fs-10 d-block mt-5"><i class="fa-solid fa-circle-info me-1"></i> اتركه فارغاً إذا كان المنتج شحناً مباشراً للألعاب (بدون كود).</small>
                     </div>
 
                     <!-- 💬 2. خانة الملاحظة النصية تحته مباشرة -->
@@ -438,7 +430,8 @@ const sMargin = Number(snap.marginPct ?? (sFinalPrice > 0 && sCost > 0 ? ((sProf
                         <label class="form-label fs-12"><i class="fa-solid fa-pen-to-square me-1"></i> ملاحظة للإدارة أو العميل (اختياري)</label>
                         <textarea class="form-input dr-textarea" id="order-modal-note" placeholder="اكتب سبب الرفض أو رسالة مرفقة مع الطلب..." rows="2"></textarea>
                     </div>
-                </div>                <div class="drawer-footer" id="drawer-footer-actions">
+                </div>
+                <div class="drawer-footer" id="drawer-footer-actions">
                 </div>
             </div>
         </div>

@@ -16,15 +16,18 @@ export const MarketingRender = {
   
   _listenersBound: false,
   initListeners: function() {
-    if (this._listenersBound) return;
-    this._listenersBound = true;
-    
-    EventBus.on('req-render-banners', () => this.renderBanners());
-    EventBus.on('req-render-offers', () => this.renderOffers());
-    EventBus.on('req-render-coupons', () => this.renderCoupons());
-    EventBus.on('req-render-alerts', () => this.renderUnifiedAlerts());
-  },
+  if (this._listenersBound) return;
+  this._listenersBound = true;
   
+  EventBus.on('req-render-banners', () => this.renderBanners());
+  EventBus.on('req-render-offers', () => this.renderOffers());
+  EventBus.on('req-render-coupons', () => this.renderCoupons());
+  EventBus.on('req-render-alerts', () => this.renderUnifiedAlerts());
+  EventBus.on('req-update-preview', () => {
+    window.AdminUI?.MarketingUI?.updateTickerPreviewUI?.();
+    window.AdminUI?.updateBrandPreview?.();
+  });
+},
   // =========================================================
   // 🖼️ 1. رسم البنرات الإعلانية
   // =========================================================

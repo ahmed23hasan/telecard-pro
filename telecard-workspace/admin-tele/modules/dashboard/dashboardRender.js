@@ -1,11 +1,11 @@
 // ============================================================================
-// 📊 محرك رسم لوحة القيادة (modules/dashboard/dashboardRender.js) - Ultimate V20.4 🚀
+// 📊 محرك رسم لوحة القيادة (modules/dashboard/dashboardRender.js) - Ultimate V20.6 🚀
 // 🎯 الوظيفة: رسم الإحصائيات، الرادار الجنائي، سجل النشاطات، ومراقبة الأمان.
-// 🚀 التحديثات المعمارية (V20.4 - Dual-Tab Logs, Smart Cache & Active Radar 🚨): 
-// 1. Native Skeleton Preservation ✨: الحفاظ على التحميل النبضي الفخم (Skeleton) أثناء جلب البيانات.
-// 2. Smart 3-Min Cache ⚡: فصل تحديث لوحة الشرف عن تحديث المخطط البياني وتوفير القراءات المهدرة (14 قراءة/ضغطة).
-// 3. Active Radar & Errors Tab 📡: فصل سجل النشاطات عن أخطاء النظام في تبويبين مستقلين مع التوجيه الذكي المباشر.
-// 4. Independent Chart Rendering 📈: تشغيل المخطط البياني باستقلالية تامة وتوحيد التوقيت (UTC) وحمايته بالكاش المستقل.
+// 🌟 التحديثات المعمارية:
+// 1. Smart Bell Signature Engine 🔔: نظام بصمة الإشعارات الدائم في localStorage لمنع تكرار ظهور عداد الجرس للإشعارات المقروءة بعد إعادة تشغيل الموقع.
+// 2. Unified Theme Colors 🎨: استبدال .text-white بـ .text-main لضمان وضوح نصوص الرادار في الوضعين الليلي والنهاري.
+// 3. Alert & Badge Standardization 🏷️: استبدال .border-warning بـ .alert-warning، وضبط افتراضي شارات السجل إلى .badge-info.
+// 4. Request Token Concurrency (reqId) 🛡️: منع تداخل الطلبات (Race Conditions) وتأمين ثبات بيانات الـ UI مع فلتر لوحة الشرف.
 // ============================================================================
 
 import { AdminData } from '../../adminData.js';
@@ -18,11 +18,11 @@ export const DashboardRender = {
     leaderboardFilter: 'all', 
     logsTab: 'audit',
     _mainChartInst: null, 
-    _cachedChartDaily: null, // 🚀 كاش المخطط البياني المستقل
+    _cachedChartDaily: null,
     _lastChartFetchMs: 0,
     
     _listenersBound: false,
-    _isRenderingDash: false,
+    _dashReqId: 0, // نظام الـ Request Token بدلاً من _isRenderingDash
     _isRenderingChart: false,
     _lastThemeState: null, 
     _lastDashFetchMs: 0,
@@ -72,7 +72,6 @@ export const DashboardRender = {
 
     changeLeaderboardFilter: function(period) {
         this.leaderboardFilter = period;
-        // 🛡️ تحديث لوحة الشرف فقط دون إعادة جلب مخطط الـ 7 أيام لتوفير 14 قراءة
         this.renderDashboard(true, true); 
     },
 
@@ -80,8 +79,14 @@ export const DashboardRender = {
         const dashView = document.getElementById('view-dash');
         if (!dashView || !dashView.classList.contains('active') || typeof AdminData.fetchDashboardStatsAsync !== 'function') return;
 
-        if (this._isRenderingDash) return;
-        this._isRenderingDash = true;
+        const reqId = ++this._dashReqId; // توثيق الطلب لمنع الـ Race Condition
+        const requestedFilter = this.leaderboardFilter || 'all'; // تجميد المتغير المحلي
+        
+        const refreshBtnIcon = document.querySelector('[data-action="refresh-dash"] i');
+        if (forceRefresh) {
+            if (refreshBtnIcon) refreshBtnIcon.classList.add('fa-spin');
+            if (window.AdminUI?.toggleLoader) window.AdminUI.toggleLoader(true, 'جاري تحديث إحصائيات القيادة...');
+        }
 
         const capsGrid = document.getElementById('dash-capsules');
         const alertsCont = document.getElementById('dash-smart-alerts');
@@ -90,20 +95,18 @@ export const DashboardRender = {
         const CACHE_TTL_MS = 180000; // 3 دقائق
         const canUseCachedStats = !forceRefresh &&
             AdminData.data?.dashboardStats &&
-            this._lastFetchedLeaderboardFilter === this.leaderboardFilter &&
+            this._lastFetchedLeaderboardFilter === requestedFilter &&
             (nowMs - this._lastDashFetchMs < CACHE_TTL_MS);
 
-        // ✨ الحفاظ على التحميل النبضي (Skeleton) إذا كان موجوداً على الشاشة، أو إظهاره عند التحديث القسري
         if (!canUseCachedStats && capsGrid && !capsGrid.querySelector('.skeleton-box') && !capsGrid.querySelector('.dash-circ-grid')) {
             capsGrid.innerHTML = `
                 <div class="skel-grid">
-                    <div class="skeleton-box skel-card"><div class="skeleton-box skel-card-icon"></div><div class="skel-card-data"><div class="skeleton-box skel-data-1"></div><div class="skeleton-box skel-data-2"></div></div></div>
-                    <div class="skeleton-box skel-card"><div class="skeleton-box skel-card-icon"></div><div class="skel-card-data"><div class="skeleton-box skel-data-1"></div><div class="skeleton-box skel-data-2"></div></div></div>
-                    <div class="skeleton-box skel-card"><div class="skeleton-box skel-card-icon"></div><div class="skel-card-data"><div class="skeleton-box skel-data-1"></div><div class="skeleton-box skel-data-2"></div></div></div>
+                    <div class="skeleton-box skel-card"><div class="skeleton-box skel-card-icon"></div><div class="skeleton-box skel-card-data"><div class="skeleton-box skel-data-1"></div><div class="skeleton-box skel-data-2"></div></div></div>
+                    <div class="skeleton-box skel-card"><div class="skeleton-box skel-card-icon"></div><div class="skeleton-box skel-card-data"><div class="skeleton-box skel-data-1"></div><div class="skeleton-box skel-data-2"></div></div></div>
+                    <div class="skeleton-box skel-card"><div class="skeleton-box skel-card-icon"></div><div class="skeleton-box skel-card-data"><div class="skeleton-box skel-data-1"></div><div class="skeleton-box skel-data-2"></div></div></div>
                 </div>`;
         }
 
-        // 📈 تشغيل المخطط البياني باستقلالية تامة وإيقافه لو طلبنا فقط لوحة الشرف
         if (typeof this.renderMainChart === 'function' && !leaderboardOnly) {
             this.renderMainChart(forceRefresh);
         }
@@ -111,32 +114,30 @@ export const DashboardRender = {
         try {
             const stats = canUseCachedStats
                 ? AdminData.data.dashboardStats
-                : await AdminData.fetchDashboardStatsAsync(this.leaderboardFilter);
+                : await AdminData.fetchDashboardStatsAsync(requestedFilter);
+
+            // إلغاء الطلبات المتأخرة إذا قام المدير بتغيير الفلتر أثناء التحميل
+            if (reqId !== this._dashReqId) return;
 
             if (!canUseCachedStats && stats) {
                 this._lastDashFetchMs = Date.now();
-                this._lastFetchedLeaderboardFilter = this.leaderboardFilter;
+                this._lastFetchedLeaderboardFilter = requestedFilter;
             }
             
             if (!stats || !stats.wallets) {
                 throw new Error("بيانات السيرفر غير مكتملة أو مفقودة.");
             }
             
-            let walletsCapsules = '';
-            if (!stats.wallets.details || Object.keys(stats.wallets.details).length === 0) {
-                walletsCapsules = DashboardTemplates.dashEmptyWallets();
-            } else {
-                walletsCapsules += DashboardTemplates.dashWalletCapsule('إجمالي التزامات المحافظ', stats.wallets.totalUsd, 'USD');
-                const details = stats.wallets.details;
-                Object.keys(details).forEach(cc => {
-                    const d = details[cc];
-                    const sumVal = (d && typeof d === 'object') ? Number(d.sum || 0) : Number(d || 0);
-                    const countVal = (d && typeof d === 'object') ? Number(d.count || 0) : 0;
-                    if (sumVal > 0 || countVal > 0) {
-                        walletsCapsules += DashboardTemplates.dashWalletCapsule(`محفظة ${cc}`, sumVal, cc);
-                    }
-                });
-            }
+            let walletsCapsules = DashboardTemplates.dashWalletCapsule('إجمالي التزامات المحافظ', stats.wallets.totalUsd || 0, 'USD');
+            const details = stats.wallets.details || {};
+            Object.keys(details).forEach(cc => {
+                const d = details[cc];
+                const sumVal = (d && typeof d === 'object') ? Number(d.sum || 0) : Number(d || 0);
+                const countVal = (d && typeof d === 'object') ? Number(d.count || 0) : 0;
+                if (sumVal > 0 || countVal > 0) {
+                    walletsCapsules += DashboardTemplates.dashWalletCapsule(`محفظة ${cc}`, sumVal, cc);
+                }
+            });
 
             let couponsHtml = (stats.promoStats && DashboardTemplates.dashCouponsSection) ? DashboardTemplates.dashCouponsSection(stats.promoStats) : '';
 
@@ -148,33 +149,33 @@ export const DashboardRender = {
                 const activeUsersList = (stats.users?.mostActiveUsers || []).filter(u => Number(u.count || 0) > 0);
                 const activeUserHtml = DashboardTemplates.dashActiveUsersList(activeUsersList);
                 
-                communityHtml = DashboardTemplates.dashCommunitySection(podiumHtml, activeUserHtml, this.leaderboardFilter);
+                communityHtml = DashboardTemplates.dashCommunitySection(podiumHtml, activeUserHtml, requestedFilter); // استخدام requestedFilter المجمّد
             }
 
             if (capsGrid) {
                 capsGrid.className = '';
                 const offlineBanner = stats._isOfflineFallback ?
-                    `<div class="alert-info mb-15 border-warning text-warning"><i class="fa-solid fa-cloud-Showers-heavy me-1"></i> <span>لم يتم الاتصال بدوال السيرفر السحابية بعد — يتم عرض القيم الصفرية الافتراضية لحين رفع الدوال.</span></div>` :
+                    `<div class="alert-info alert-warning mb-15 text-warning"><i class="fa-solid fa-cloud-showers-heavy me-1"></i> <span>لم يتم الاتصال بدوال السيرفر السحابية بعد — يتم عرض القيم الصفرية الافتراضية لحين رفع الدوال.</span></div>` :
                     '';
                 capsGrid.innerHTML = offlineBanner + DashboardTemplates.dashGrid(stats, walletsCapsules, couponsHtml, communityHtml);
             }
 
-            // 🚀 قراءة عدد الـ IPs والأجهزة المحظورة المحدثة مباشرة
             const totalBannedIps = Number(stats.users?.bannedIps || 0);
             const sysSettings = AdminData.data.settings || {};
             const totalBannedDevices = Number(stats.users?.bannedDevices ?? (Array.isArray(sysSettings.bannedDevices) ? sysSettings.bannedDevices.length : 0));
             const displayAlerts = Array.isArray(stats.alerts)
-                ? stats.alerts.filter(a => a && a.id !== 'security_stable')
+                ? stats.alerts.filter(a => a && a.id !== 'security_stable').map(a => ({ ...a }))
                 : [];
 
-            const pendingOrders = stats.pendingCounts?.orders || 0;
-            const pendingDeposits = stats.pendingCounts?.deposits || 0;
-            const pendingKYC = stats.pendingCounts?.kyc || 0;
-            const pendingComplaints = stats.pendingCounts?.complaints || 0;
+            const pendingOrders = Number(stats.pendingCounts?.orders || 0);
+            const pendingDeposits = Number(stats.pendingCounts?.deposits || 0);
+            const pendingKYC = Number(stats.pendingCounts?.kyc || 0);
+            const pendingComplaints = Number(stats.pendingCounts?.complaints || 0);
 
             if (stats.wallets && stats.wallets.hasUncalculated) {
                 displayAlerts.unshift({
                     id: 'wallet_warning',
+                    sigKey: 'wallet_warning',
                     badgeCount: 1,
                     type: 'danger',
                     icon: 'fa-triangle-exclamation',
@@ -183,19 +184,18 @@ export const DashboardRender = {
                 });
             }            
             
-            if (pendingOrders > 0) displayAlerts.unshift({ id: 'act_ord', badgeCount: pendingOrders, type: 'warning', icon: 'fa-box-open', text: `بانتظارك <b class="text-white num-en font-numeric" dir="ltr">${pendingOrders}</b> طلبات منتجات تحتاج للتنفيذ.`, action: `data-action="nav-with-filter" data-section="orders" data-status="pending"` });
-            if (pendingDeposits > 0) displayAlerts.unshift({ id: 'act_dep', badgeCount: pendingDeposits, type: 'success', icon: 'fa-money-bill-transfer', text: `بانتظارك <b class="text-white num-en font-numeric" dir="ltr">${pendingDeposits}</b> طلبات إيداع للمحفظة.`, action: `data-action="nav-with-filter" data-section="deposits" data-status="pending"` });
-            if (pendingKYC > 0) displayAlerts.unshift({ id: 'act_kyc', badgeCount: pendingKYC, type: 'info', icon: 'fa-id-card-clip', text: `يوجد <b class="num-en text-info font-numeric" dir="ltr">${pendingKYC}</b> طلبات توثيق هوية بانتظار المراجعة.`, action: `data-action="nav" data-target="kyc-system"` });
+            if (pendingOrders > 0) displayAlerts.unshift({ id: 'act_ord', sigKey: 'act_ord', badgeCount: pendingOrders, type: 'warning', icon: 'fa-box-open', text: `بانتظارك <b class="text-main num-en font-numeric" dir="ltr">${pendingOrders}</b> طلبات منتجات تحتاج للتنفيذ.`, action: `data-action="nav-with-filter" data-section="orders" data-status="pending"` });
+            if (pendingDeposits > 0) displayAlerts.unshift({ id: 'act_dep', sigKey: 'act_dep', badgeCount: pendingDeposits, type: 'success', icon: 'fa-money-bill-transfer', text: `بانتظارك <b class="text-main num-en font-numeric" dir="ltr">${pendingDeposits}</b> طلبات إيداع للمحفظة.`, action: `data-action="nav-with-filter" data-section="deposits" data-status="pending"` });
+            if (pendingKYC > 0) displayAlerts.unshift({ id: 'act_kyc', sigKey: 'act_kyc', badgeCount: pendingKYC, type: 'info', icon: 'fa-id-card-clip', text: `يوجد <b class="num-en text-info font-numeric" dir="ltr">${pendingKYC}</b> طلبات توثيق هوية بانتظار المراجعة.`, action: `data-action="nav" data-target="kyc-system"` });
 
             if (pendingComplaints > 0) {
-                displayAlerts.unshift({ id: 'act_complaint', badgeCount: pendingComplaints, type: 'danger', icon: 'fa-star-half-stroke', text: `تنبيه هام: يوجد <b class="text-white num-en font-numeric" dir="ltr">${pendingComplaints}</b> عميل غاضب بانتظار تدخلك!`, action: `data-action="nav-to-complaints"` });
+                displayAlerts.unshift({ id: 'act_complaint', sigKey: 'act_complaint', badgeCount: pendingComplaints, type: 'danger', icon: 'fa-star-half-stroke', text: `تنبيه هام: يوجد <b class="text-main num-en font-numeric" dir="ltr">${pendingComplaints}</b> عميل غاضب بانتظار تدخلك!`, action: `data-action="nav-to-complaints"` });
             }
 
             if (totalBannedIps > 0 || totalBannedDevices > 0) {
-                displayAlerts.push({ id: 'firewall_active', badgeCount: 0, type: 'danger', icon: 'fa-shield-virus', text: `الجدار الناري نشط! يتصدى لـ <b class="text-white num-en font-numeric" dir="ltr">${totalBannedIps}</b> IP و <b class="text-white num-en font-numeric" dir="ltr">${totalBannedDevices}</b> جهاز محظور.`, action: `data-action="nav" data-target="sys"` });
+                displayAlerts.push({ id: 'firewall_active', sigKey: `firewall_${totalBannedIps}_${totalBannedDevices}`, badgeCount: 0, type: 'danger', icon: 'fa-shield-virus', text: `الجدار الناري نشط! يتصدى لـ <b class="text-main num-en font-numeric" dir="ltr">${totalBannedIps}</b> IP و <b class="text-main num-en font-numeric" dir="ltr">${totalBannedDevices}</b> جهاز محظور.`, action: `data-action="nav" data-target="sys"` });
             }
 
-            // 🚀 دمج الإنذارات الأمنية والمالية (systemAlerts) وتوجيهاتها الذكية
             if (Array.isArray(stats.systemAlerts) && stats.systemAlerts.length > 0) { 
                 stats.systemAlerts.forEach(sa => { 
                     let clickAction = `data-action="nav-to-sys-errors"`;
@@ -212,6 +212,7 @@ export const DashboardRender = {
                     
                     displayAlerts.unshift({ 
                         id: `sys_err_${sa.id}`, 
+                        sigKey: `sys_err_${sa.id}_${RenderHelpers.parseTime(sa.time || 0, false)}`,
                         badgeCount: 1, 
                         type: 'danger', 
                         icon: 'fa-radiation', 
@@ -228,13 +229,33 @@ export const DashboardRender = {
                 } else {
                     alertsCont.innerHTML = displayAlerts.map(a => {
                         let type = a.type || 'info', icon = a.icon || 'fa-info-circle', text = a.text || '', action = a.action || '';
-                        const timeStr = (a.time && a.time !== 0) ? RenderHelpers.formatSafeDate(a.time) : '';
+                        const timeStr = (a.time && Number(a.time) > 0) ? RenderHelpers.formatSafeDate(a.time) : '';
 
-                        // 🚀 [الإصلاح المعماري] تصحيح مسارات الجدار الناري والتوجيه
-                        if (a.id === 'vault_empty') { type = 'danger'; icon = 'fa-box-open'; text = `مخزون حرج: صندوق <b class="text-danger">${Utils.escapeHTML(a.poolName)}</b> فارغ تماماً!`; action = `data-action="edit-item" data-type="vault" data-id="${Utils.escapeHTML(a.poolId)}"`; } 
-                        else if (a.id === 'vault_low') { type = 'warning'; icon = 'fa-hourglass-half'; text = `نقص مخزون: تبقى <b class="num-en text-warning font-numeric" dir="ltr">${Utils.enNum(a.count)}</b> أكواد في <b class="text-white">${Utils.escapeHTML(a.poolName)}</b>`; action = `data-action="edit-item" data-type="vault" data-id="${Utils.escapeHTML(a.poolId)}"`; } 
-                        else if (a.id === 'coupon_used') { type = 'success'; icon = 'fa-tag'; text = `استخدم العميل <b class="text-white">${Utils.escapeHTML(a.user)}</b> الكوبون <span class="badge-qty badge-success font-numeric" dir="ltr">${Utils.escapeHTML(a.code)}</span>`; action = `data-action="open-tx-detail" data-type="order" data-id="${Utils.escapeHTML(a.orderId)}"`; } 
-                        else if (a.id === 'security_stable') { type = 'security'; icon = 'fa-shield-check'; text = `حالة النظام الأمنية مستقرة - لا يوجد أي نشاط مشبوه.`; }
+                        if (a.id === 'vault_empty') {
+                            a.sigKey = `vault_empty_${a.poolId}`;
+                            a.badgeCount = 1;
+                            type = 'danger';
+                            icon = 'fa-box-open';
+                            text = `مخزون حرج: صندوق <b class="text-danger">${Utils.escapeHTML(a.poolName)}</b> فارغ تماماً!`;
+                            action = `data-action="edit-item" data-type="vault" data-id="${Utils.escapeHTML(a.poolId)}"`;
+                        } else if (a.id === 'vault_low') {
+                            a.sigKey = `vault_low_${a.poolId}_${a.count}`;
+                            a.badgeCount = 1;
+                            type = 'warning';
+                            icon = 'fa-hourglass-half';
+                            text = `نقص مخزون: تبقى <b class="num-en text-warning font-numeric" dir="ltr">${Utils.enNum(a.count)}</b> أكواد في <b class="text-main">${Utils.escapeHTML(a.poolName)}</b>`;
+                            action = `data-action="edit-item" data-type="vault" data-id="${Utils.escapeHTML(a.poolId)}"`;
+                        } else if (a.id === 'coupon_used') {
+                            a.sigKey = `coupon_used_${a.orderId || a.code}`;
+                            type = 'success';
+                            icon = 'fa-tag';
+                            text = `استخدم العميل <b class="text-main">${Utils.escapeHTML(a.user)}</b> الكوبون <span class="badge-qty font-numeric" dir="ltr">${Utils.escapeHTML(a.code)}</span>`;
+                            action = `data-action="open-tx-detail" data-type="order" data-id="${Utils.escapeHTML(a.orderId)}"`;
+                        } else if (a.id === 'security_stable') {
+                            type = 'security';
+                            icon = 'fa-shield-check';
+                            text = `حالة النظام الأمنية مستقرة - لا يوجد أي نشاط مشبوه.`;
+                        }
 
                         return DashboardTemplates.dashAlertItem(type, icon, text, action, timeStr); 
                     }).join('');
@@ -244,11 +265,15 @@ export const DashboardRender = {
             this.updateTopBellBadge(displayAlerts);
 
         } catch (error) {
+            if (reqId !== this._dashReqId) return; // حماية من أخطاء الطلبات الملغية
             console.error("🚨 فشل جلب لوحة القيادة السحابية:", error);
-            if (capsGrid) capsGrid.innerHTML = `<div class="w-100 text-center py-40 text-danger"><i class="fa-solid fa-triangle-exclamation fa-3x mb-15 me-1"></i><h4>تعذر جلب الإحصائيات من السيرفر.</h4></div>`;
+            if (capsGrid) capsGrid.innerHTML = RenderHelpers.emptyState('fa-solid fa-triangle-exclamation text-danger', 'تعذر جلب الإحصائيات من السيرفر', 'يرجى التحقق من الاتصال وتحديث الصفحة.');
             if (alertsCont) alertsCont.innerHTML = RenderHelpers.emptyState('fa-solid fa-plug-circle-xmark text-danger', 'تعذر الاتصال بالرادار السحابي', 'يرجى تحديث الصفحة.');
         } finally {
-            this._isRenderingDash = false;
+            if (reqId === this._dashReqId && forceRefresh) {
+                if (refreshBtnIcon) refreshBtnIcon.classList.remove('fa-spin');
+                if (window.AdminUI?.toggleLoader) window.AdminUI.toggleLoader(false);
+            }
         }
     },
 
@@ -256,30 +281,57 @@ export const DashboardRender = {
         const topBellBadge = document.getElementById('global-alert-badge');
         if (!topBellBadge) return;
         
-        if (!displayAlerts || displayAlerts.length === 0) {
+        const activeAlerts = (displayAlerts || []).filter(a => a && a.id !== 'security_stable' && (a.badgeCount === undefined || Number(a.badgeCount) > 0));
+        if (activeAlerts.length === 0) {
             topBellBadge.classList.add('hide-element');
             topBellBadge.classList.remove('active');
-            sessionStorage.removeItem('telecard_last_seen_alert_time');
-            sessionStorage.removeItem('telecard_last_seen_alert_count');
+            localStorage.removeItem('telecard_seen_alerts_map');
             return;
         }
         
-        const currentAlertCount = displayAlerts
-            .filter(a => a && a.id !== 'security_stable')
-            .reduce((sum, a) => sum + (a.badgeCount !== undefined ? Number(a.badgeCount) : 1), 0);
-        if (currentAlertCount <= 0) {
-            topBellBadge.classList.add('hide-element');
-            topBellBadge.classList.remove('active');
-            return;
+        let seenMap = {};
+        try {
+            seenMap = JSON.parse(localStorage.getItem('telecard_seen_alerts_map') || '{}') || {};
+        } catch (e) {
+            seenMap = {};
+        }
+
+        const currentMap = {};
+        const nextSeenMap = {};
+        let seenMapNeedsSync = false;
+        let unseenCount = 0;
+
+        activeAlerts.forEach(a => {
+            const key = String(a.sigKey || a.id || '');
+            if (!key) return;
+            const countVal = a.badgeCount !== undefined ? Number(a.badgeCount) : 1;
+            currentMap[key] = countVal;
+
+            if (seenMap[key] !== undefined) {
+                const prevSeenVal = Number(seenMap[key] || 0);
+                if (countVal < prevSeenVal) {
+                    nextSeenMap[key] = countVal;
+                    seenMapNeedsSync = true;
+                } else {
+                    nextSeenMap[key] = prevSeenVal;
+                    if (countVal > prevSeenVal) {
+                        unseenCount += (countVal - prevSeenVal);
+                    }
+                }
+            } else {
+                unseenCount += countVal;
+            }
+        });
+
+        if (Object.keys(seenMap).length !== Object.keys(nextSeenMap).length) {
+            seenMapNeedsSync = true;
+        }
+        if (seenMapNeedsSync) {
+            localStorage.setItem('telecard_seen_alerts_map', JSON.stringify(nextSeenMap));
         }
         
-        const lastSeenTime = Number(sessionStorage.getItem('telecard_last_seen_alert_time')) || 0;
-        const lastSeenCount = Number(sessionStorage.getItem('telecard_last_seen_alert_count')) || 0;
-        
-        const latestAlertTime = Math.max(...displayAlerts.map(a => RenderHelpers.parseTime(a.time || 0)));
-        
-        if (latestAlertTime > lastSeenTime || currentAlertCount > lastSeenCount || lastSeenTime === 0) {
-            topBellBadge.innerText = currentAlertCount > 99 ? "+99" : currentAlertCount;
+        if (unseenCount > 0) {
+            topBellBadge.innerText = unseenCount > 99 ? "+99" : Utils.enNum(unseenCount);
             topBellBadge.classList.remove('hide-element');
             topBellBadge.classList.add('active');
         } else {
@@ -289,12 +341,13 @@ export const DashboardRender = {
         
         const bellContainer = topBellBadge.parentElement;
         if (bellContainer) {
-            bellContainer.dataset.currentAlertCount = String(currentAlertCount);
+            bellContainer._latestAlertsMap = currentMap;
             if (!bellContainer.hasAttribute('data-alert-bound')) {
                 bellContainer.setAttribute('data-alert-bound', 'true');
                 bellContainer.addEventListener('click', function() {
-                    sessionStorage.setItem('telecard_last_seen_alert_time', Date.now());
-                    sessionStorage.setItem('telecard_last_seen_alert_count', bellContainer.dataset.currentAlertCount || '0');
+                    if (bellContainer._latestAlertsMap) {
+                        localStorage.setItem('telecard_seen_alerts_map', JSON.stringify(bellContainer._latestAlertsMap));
+                    }
                     topBellBadge.classList.add('hide-element');
                     topBellBadge.classList.remove('active');
                 });
@@ -302,7 +355,6 @@ export const DashboardRender = {
         }
     },
 
-    // 🚀 تم تطبيق حماية الكاش المستقل هنا
     renderMainChart: async function(forceFetch = false) { 
         const chartDiv = document.querySelector("#main-revenue-chart");
         if (!chartDiv || typeof window.ApexCharts === 'undefined') return;
@@ -324,8 +376,6 @@ export const DashboardRender = {
 
             for (let i = 6; i >= 0; i--) {
                 const d = new Date(todayUTCStart - (i * 86400000)); 
-                
-                // 🚀 استخدام دوال الـ UTC لتطابق مفاتيح السيرفر بدقة
                 const dayKey = `${d.getUTCFullYear()}-${String(d.getUTCMonth()+1).padStart(2,'0')}-${String(d.getUTCDate()).padStart(2,'0')}`;
                 last7Days.push(d);
                 
@@ -374,6 +424,13 @@ export const DashboardRender = {
     renderLogs: function() {
         const tbody = document.getElementById('logs-table-body');
         if (!tbody) return;
+
+        const tabsCont = document.getElementById('tabs-logs');
+        if (tabsCont) {
+            tabsCont.querySelectorAll('.main-tab-btn').forEach(b => {
+                b.classList.toggle('active', b.dataset.tab === this.logsTab);
+            });
+        }
         
         const sysErrors = Array.isArray(AdminData.data.systemErrors) && AdminData.data.systemErrors.length > 0
             ? AdminData.data.systemErrors
@@ -398,7 +455,7 @@ export const DashboardRender = {
                     ? `المورد (${suppObj?.name || err.supplierId})`
                     : 'النظام الآلي 🤖';
                 const actionCode = (err.action || 'SYSTEM_ERROR').toUpperCase();
-                const titleHtml = (err.title && err.title !== err.action) ? `<b class="text-danger d-block mb-1">${Utils.escapeHTML(err.title)}</b>` : '';
+                const titleHtml = (err.title && err.title !== err.action) ? `<b class="text-danger d-block mb-5">${Utils.escapeHTML(err.title)}</b>` : '';
                 
                 let inspectBtnHtml = '';
                 if (err.orderId) {
@@ -410,9 +467,9 @@ export const DashboardRender = {
                 }
                 
                 return `<tr>
-                    <td><div class="log-date-cell"><span class="d-date num-en font-numeric" dir="ltr">${safeDateTime}</span></div></td>
+                    <td><div class="log-date-cell"><span class="d-date num-en font-numeric" dir="ltr" lang="en">${safeDateTime}</span></div></td>
                     <td><div class="log-user-cell"><i class="fa-solid fa-triangle-exclamation text-danger me-1"></i> <span>${Utils.escapeHTML(sourceName)}</span></div></td>
-                    <td><span class="log-action-badge num-en font-numeric badge-danger bg-danger-10 text-danger border-danger-15" dir="ltr">${Utils.escapeHTML(actionCode)}</span></td>
+                    <td><span class="log-action-badge num-en font-numeric badge-danger" dir="ltr" lang="en">${Utils.escapeHTML(actionCode)}</span></td>
                     <td class="log-details-cell">${titleHtml}<span>${Utils.escapeHTML(err.details)}</span>${inspectBtnHtml}</td>
                 </tr>`;
             }).join('');
@@ -429,17 +486,17 @@ export const DashboardRender = {
         
         let html = '';
         logs.forEach(log => {
-            let badgeClass = 'badge-default';
+            let badgeClass = 'badge-info';
             const action = (log.action || '').toUpperCase();
             
             if (action.includes('ADD') || action.includes('APPROVE') || action.includes('ACCEPT')) {
-                badgeClass = 'badge-success bg-success-10 text-success border-success-15';
+                badgeClass = 'badge-success';
             } else if (action.includes('DELETE') || action.includes('REJECT') || action.includes('BAN') || action.includes('REVOKE')) {
-                badgeClass = 'badge-danger bg-danger-10 text-danger border-danger-15';
+                badgeClass = 'badge-danger';
             } else if (action.includes('EDIT') || action.includes('UPDATE') || action.includes('RESTRICT') || action.includes('SYNC')) {
-                badgeClass = 'badge-warning bg-warning-10 text-warning border-warning-15';
+                badgeClass = 'badge-warning';
             } else if (action.includes('ORDER') || action.includes('PAYMENT') || action.includes('BALANCE') || action.includes('KYC')) {
-                badgeClass = 'badge-info bg-info-10 text-info border-info-15';
+                badgeClass = 'badge-info';
             }
             
             const safeDateTime = RenderHelpers.formatSafeDate(log.timestamp);
@@ -447,9 +504,9 @@ export const DashboardRender = {
             const displayAdminName = log.admin || (adminUser ? (adminUser.fullName || adminUser.firstName || adminUser.name || adminUser.username) : (log.adminUid || 'مدير النظام'));
             
             html += `<tr>
-                <td><div class="log-date-cell"><span class="d-date num-en font-numeric" dir="ltr">${safeDateTime}</span></div></td>
+                <td><div class="log-date-cell"><span class="d-date num-en font-numeric" dir="ltr" lang="en">${safeDateTime}</span></div></td>
                 <td><div class="log-user-cell"><i class="fa-solid fa-user-shield text-primary me-1"></i> <span>${Utils.escapeHTML(displayAdminName)}</span></div></td>
-                <td><span class="log-action-badge num-en font-numeric ${badgeClass}" dir="ltr">${Utils.escapeHTML(action)}</span></td>
+                <td><span class="log-action-badge num-en font-numeric ${badgeClass}" dir="ltr" lang="en">${Utils.escapeHTML(action)}</span></td>
                 <td class="log-details-cell">${Utils.escapeHTML(log.details)}</td>
             </tr>`;
         });

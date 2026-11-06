@@ -1,10 +1,6 @@
 // ============================================================================
-// 📦 واجهة وتفاعلات الطلبات (modules/orders/ordersUI.js) - النسخة الماسية V16.0 💎
+// 📦 واجهة وتفاعلات الطلبات (modules/orders/ordersUI.js) - النسخة الماسية V16.1 💎
 // 🎯 الوظيفة: إدارة الدرج الجانبي الجنائي للطلبات وعرض التحليل المالي والتتبع.
-// 🚀 التحديث (V16.0 - Cloud Drawer Resolver & Encrypted Audit Hydration):
-// 1. Audit Token Hydration 🔓: فك تشفير التكلفة والربح سحابياً للطلبات القديمة المفتوحة من سجل العميل.
-// 2. Cloud Order Fallback ☁️: جلب الطلب من السيرفر تلقائياً إذا تم النقر عليه من إشعار خارج الـ 50 طلباً المحملة.
-// 3. Profile Image Fix 🖼️: دعم قراءة user.profileImage بجانب user.img في ترويسة العميل داخل الدرج.
 // ============================================================================
 
 import { AdminData } from '../../adminData.js';
@@ -55,11 +51,14 @@ export const OrdersUI = {
             EventBus.emit('order-drawer-opened', order.id);
         }
 
+        // 🚀 إصلاح النقر خارج الدرج للإغلاق بإضافة data-action و data-type
         let drawer = document.getElementById('order-drawer-overlay');
         if (!drawer) {
             drawer = document.createElement('div');
             drawer.id = 'order-drawer-overlay';
-            drawer.className = 'drawer-overlay dynamic-auto-destroy'; 
+            drawer.className = 'drawer-overlay dynamic-auto-destroy';
+            drawer.dataset.action = 'close-drawer';
+            drawer.dataset.type = 'order';
             document.body.appendChild(drawer);
         }
 
@@ -148,20 +147,20 @@ export const OrdersUI = {
         const isAuto = (!isApi && !isSupplier && Boolean(order.vaultPoolId || order.isAutoDelivered));
         let sourceBadgeHtml = '';
         if (isApi) {
-            sourceBadgeHtml = `<span class="badge-tag fs-10 ms-2 badge-source-api"><i class="fa-solid fa-robot"></i> طلب API</span>`;
+            sourceBadgeHtml = `<span class="badge-source-api fs-10 ms-1"><i class="fa-solid fa-code me-1"></i> طلب API</span>`;
         } else if (isSupplier) {
-            sourceBadgeHtml = `<span class="badge-tag fs-10 ms-2 badge-source-auto"><i class="fa-solid fa-plug"></i> مورد خارجي</span>`;
+            sourceBadgeHtml = `<span class="badge-source-supplier fs-10 ms-1"><i class="fa-solid fa-plug me-1"></i> مورد خارجي</span>`;
         } else if (isAuto) {
-            sourceBadgeHtml = `<span class="badge-tag fs-10 ms-2 badge-source-auto"><i class="fa-solid fa-bolt"></i> تسليم آلي</span>`;
+            sourceBadgeHtml = `<span class="badge-source-auto fs-10 ms-1"><i class="fa-solid fa-bolt me-1"></i> تسليم آلي</span>`;
         } else {
-            sourceBadgeHtml = `<span class="badge-tag fs-10 ms-2 badge-source-manual"><i class="fa-solid fa-hand-paper"></i> تنفيذ يدوي</span>`;
+            sourceBadgeHtml = `<span class="badge-source-manual fs-10 ms-1"><i class="fa-solid fa-hand-paper me-1"></i> تنفيذ يدوي</span>`;
         }
 
         let apiTrackingRowHtml = '';
         const externalId = order.externalOrderId || order.referenceId || order.apiOrderId || (order.apiData && order.apiData.orderId);
         if (externalId) {
             const extLabel = isSupplier ? 'رقم الطلب لدى المورد' : 'رقم الطلب المرجعي';
-            apiTrackingRowHtml = `<div class="dr-receipt-row"><span class="dr-receipt-lbl"><i class="fa-solid fa-link text-info"></i> ${extLabel}</span><span class="dr-receipt-val num-en text-info copyable-admin" dir="ltr" data-action="copy-text" data-copy-text="${Utils.escapeHTML(externalId)}">#${Utils.escapeHTML(externalId)}</span></div>`;
+            apiTrackingRowHtml = `<div class="dr-receipt-row"><span class="dr-receipt-lbl"><i class="fa-solid fa-link text-info me-1"></i> ${extLabel}</span><span class="dr-receipt-val num-en text-info copyable-admin font-numeric" dir="ltr" lang="en" data-action="copy-text" data-copy-text="${Utils.escapeHTML(externalId)}">#${Utils.escapeHTML(externalId)}</span></div>`;
         }
 
         let executionTimeRowHtml = '';
@@ -171,7 +170,7 @@ export const OrdersUI = {
 
         if (endTime && order.status !== 'pending' && order.status !== 'processing') {
             const execDateTxt = RenderHelpers.formatSafeDate(endTime);
-            executionTimeRowHtml = `<div class="dr-receipt-row"><span class="dr-receipt-lbl"><i class="fa-solid fa-calendar-check text-success"></i> وقت التنفيذ / الإغلاق</span><span class="dr-receipt-val num-en text-success" dir="ltr">${execDateTxt}</span></div>`;
+            executionTimeRowHtml = `<div class="dr-receipt-row"><span class="dr-receipt-lbl"><i class="fa-solid fa-calendar-check text-success me-1"></i> وقت التنفيذ / الإغلاق</span><span class="dr-receipt-val num-en text-success font-numeric" dir="ltr" lang="en">${execDateTxt}</span></div>`;
         }
 
         if (startTime && endTime && startTime < endTime && order.status !== 'pending') {
@@ -187,12 +186,12 @@ export const OrdersUI = {
 
         let extraMetaHtml = '';
         if (order.ip || order.clientIp) {
-            extraMetaHtml += `<div class="dr-receipt-row"><span class="dr-receipt-lbl"><i class="fa-solid fa-network-wired text-muted"></i> عنوان IP للمشتري</span><span class="dr-receipt-val num-en text-muted copyable-admin" dir="ltr" data-action="copy-text" data-copy-text="${Utils.escapeHTML(order.ip || order.clientIp)}">${Utils.escapeHTML(order.ip || order.clientIp)}</span></div>`;
+            extraMetaHtml += `<div class="dr-receipt-row"><span class="dr-receipt-lbl"><i class="fa-solid fa-network-wired text-muted me-1"></i> عنوان IP للمشتري</span><span class="dr-receipt-val num-en text-muted copyable-admin font-numeric" dir="ltr" lang="en" data-action="copy-text" data-copy-text="${Utils.escapeHTML(order.ip || order.clientIp)}">${Utils.escapeHTML(order.ip || order.clientIp)}</span></div>`;
         }
         if (order.supplierName || order.supplierId) {
             const suppObj = AdminData.data.suppliersMap?.[order.supplierId];
             const suppDisplayName = order.supplierName || suppObj?.name || order.supplierId;
-            extraMetaHtml += `<div class="dr-receipt-row"><span class="dr-receipt-lbl"><i class="fa-solid fa-truck-fast text-primary"></i> المورد (التنفيذ الخارجي)</span><span class="dr-receipt-val fw-bold text-primary">${Utils.escapeHTML(suppDisplayName)}</span></div>`;
+            extraMetaHtml += `<div class="dr-receipt-row"><span class="dr-receipt-lbl"><i class="fa-solid fa-truck-fast text-primary me-1"></i> المورد (التنفيذ الخارجي)</span><span class="dr-receipt-val fw-bold text-primary">${Utils.escapeHTML(suppDisplayName)}</span></div>`;
         }
 
         const rawInputs = (order.input || '').trim().split('|').map(p => p.trim()).filter(Boolean);
@@ -251,21 +250,24 @@ export const OrdersUI = {
             this._hydrateEncryptedAuditIfNeeded(order.id);
         }
     },
-    _hydrateEncryptedAuditIfNeeded: async function(orderId) {
-        try {
-            const res = await FirebaseAdapter.callFunction('adminGetOrdersList', { limit: 1, searchQuery: String(orderId) });
-            if (res && res.success && Array.isArray(res.data) && res.data.length > 0) {
-                const decryptedOrd = res.data[0];
-                if (!AdminData.data.ordersMap) AdminData.data.ordersMap = {};
-                AdminData.data.ordersMap[String(orderId)] = decryptedOrd;
-                if (String(this.currentOrderId) === String(orderId)) {
-                    this.openOrderDrawer(orderId, true);
-                }
-            }
-        } catch (e) {}
-    },
 
-    closeOrderDrawer: function() {
+    _hydrateEncryptedAuditIfNeeded: async function(orderId) {
+    try {
+        const res = await FirebaseAdapter.callFunction('adminGetOrdersList', { limit: 1, searchQuery: String(orderId) });
+        if (res && res.success && Array.isArray(res.data) && res.data.length > 0) {
+            const decryptedOrd = res.data[0];
+            if (!AdminData.data.ordersMap) AdminData.data.ordersMap = {};
+            AdminData.data.ordersMap[String(orderId)] = decryptedOrd;
+            const ordIdx = (AdminData.data.orders || []).findIndex(o => String(o.id) === String(orderId));
+            if (ordIdx > -1) AdminData.data.orders[ordIdx] = decryptedOrd;
+            
+            const drawerEl = document.getElementById('order-drawer-overlay');
+            if (String(this.currentOrderId) === String(orderId) && drawerEl?.classList.contains('active')) {
+                this.openOrderDrawer(orderId, true);
+            }
+        }
+    } catch (e) {}
+},    closeOrderDrawer: function() {
         if (window.AdminUI && window.AdminUI.closeModal) {
             window.AdminUI.closeModal('order-drawer-overlay');
         }

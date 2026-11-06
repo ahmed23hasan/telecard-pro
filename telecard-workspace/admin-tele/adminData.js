@@ -1,13 +1,13 @@
 // ============================================================================
-// 🗄️ مدير البيانات المركزي (adminData.js) - Enterprise V19.2 💎 (The Masterpiece)
+// 🗄️ مدير البيانات المركزي (adminData.js) - Enterprise V19.4 💎 (The Masterpiece)
 // 🎯 الوظيفة: SSOT، إدارة الذاكرة بذكاء، والاستعلامات التجميعية.
-// 🚀 التحديثات المعمارية (V19.2 - Zero-Leak Firewall, XSS Immunity & Schema Unification):
+// 🚀 التحديثات المعمارية (V19.4 - Zero-Leak Firewall, Lazy Reviews & Schema Unification):
 // 1. Zero-Leak Firewall 🧱: جلب الجدار الناري (bannedIps/Devices) من active_configs ومنع تسريبه للوثيقة العامة عند حفظ الإعدادات.
-// 2. Write-Time Aggregation ⚡: استبدال جلب 5000 طلب بـ 4 قراءات (Reads) فقط لأبطال الشهر.
+// 2. Lazy Reviews Loading ⚡: إيقاف استنزاف 500 قراءة لجدول التقييمات عند كل إقلاع وتحميلها عند الطلب فقط مع تحديث شارتها من إحصائيات السيرفر.
 // 3. Zero-Read Categories BI 📊: حساب جدول الأقسام في الذاكرة من prodsMap و catsMap بـ 0 قراءات سحابية.
 // 4. Isolated KYC State 🪪: حفظ kycPendingUsers في مصفوفة معزولة لمنع اختفائها عند بحث أو فرز العملاء.
-// 5. Smart System Dirty-Check 🛡️: منع الكتابة الزائدة على telecard_system و telecard_settings.
-// 6. Safe Nested DeleteField 🔒: حذف المفاتيح الفرعية الملغاة (مثل tierPrices) بأمان عبر set + merge.
+// 5. Smart System Dirty-Check 🛡️: منع الكتابة الزائدة على telecard_system و telecard_settings، ومقارنة التواريخ بدقة بعد structuredClone.
+// 6. Safe Nested DeleteField & Undefined Guard 🔒: تنظيف القيم غير المعرفة وحذف المفاتيح الفرعية الملغاة بأمان عبر set + merge.
 // 7. Schema Unification 🔗: توحيد ثوابت DB_KEYS، ومعرفات الأقسام (categoryId)، وأيقونة ولون المستوى الافتراضي (icon/color).
 // ============================================================================
 
@@ -36,6 +36,7 @@ export const AdminData = {
     isCloudSyncSuccessful: false,
     isSeedingTiers: false, 
     isSeedingCountries: false, 
+    _reviewsLoaded: false,
     
     cursors: { orders: null, deposits: null, users: null, logs: null, alerts: null },
     walletsCache: { totalUsd: 0, details: {} },
@@ -48,6 +49,7 @@ export const AdminData = {
         tiers: [], countries: [], vault: [], coupons: [], 
         offers: [], logs: [], alerts: [], suppliers: [], 
         reviews: [], tiersStats: {}, dashboardStats: null,
+        notif: {}, systemErrors: [],
         activeConfigs: {}, // 🛡️ كاش الجدار الناري
         
         usersMap: {}, prodsMap: {}, catsMap: {}, tiersMap: {}, 
@@ -64,13 +66,42 @@ export const AdminData = {
     _snapshots: {},
 
     getWalletsLiquidity: function() {
-        return this.walletsCache;
+        const rawDetails = this.walletsCache?.details || {};
+        const mergedDetails = { ...rawDetails };
+        
+        if (Array.isArray(this.data.rates)) {
+            this.data.rates.forEach(r => {
+                const code = String(r?.code || '').trim().toUpperCase();
+                if (code && !mergedDetails[code]) {
+                    mergedDetails[code] = { sum: 0, count: 0 };
+                }
+            });
+        }
+        if (!mergedDetails.USD) {
+            mergedDetails.USD = { sum: 0, count: 0 };
+        }
+        
+        return {
+            ...this.walletsCache,
+            totalUsd: Number(this.walletsCache?.totalUsd || 0),
+            details: mergedDetails
+        };
     },
 
     _deepEqual: function(obj1, obj2) {
         if (obj1 === obj2) return true;
         if (typeof obj1 !== 'object' || obj1 === null || typeof obj2 !== 'object' || obj2 === null) return false;
-        if (typeof obj1.toMillis === 'function' && typeof obj2.toMillis === 'function') return obj1.toMillis() === obj2.toMillis();
+        
+        // 🛡️ توحيد مقارنة التواريخ (Firestore Timestamp) حتى بعد تجريد الدوال بواسطة structuredClone في _snapshots
+        const getMs = (o) => {
+            if (typeof o.toMillis === 'function') return o.toMillis();
+            if (o.seconds !== undefined && o.nanoseconds !== undefined) return (o.seconds * 1000) + Math.floor(o.nanoseconds / 1e6);
+            if (o._seconds !== undefined && o._nanoseconds !== undefined) return (o._seconds * 1000) + Math.floor(o._nanoseconds / 1e6);
+            return null;
+        };
+        const ms1 = getMs(obj1);
+        const ms2 = getMs(obj2);
+        if (ms1 !== null || ms2 !== null) return ms1 === ms2;
         
         if (Array.isArray(obj1) && Array.isArray(obj2)) {
             if (obj1.length !== obj2.length) return false;
@@ -82,8 +113,8 @@ export const AdminData = {
 
         if (Array.isArray(obj1) !== Array.isArray(obj2)) return false;
 
-        const keys1 = Object.keys(obj1).filter(k => k !== 'updatedAt');
-        const keys2 = Object.keys(obj2).filter(k => k !== 'updatedAt');
+        const keys1 = Object.keys(obj1).filter(k => k !== 'updatedAt' && obj1[k] !== undefined);
+        const keys2 = Object.keys(obj2).filter(k => k !== 'updatedAt' && obj2[k] !== undefined);
         
         if (keys1.length !== keys2.length) return false;
         for (const key of keys1) {
@@ -135,20 +166,19 @@ export const AdminData = {
         const obj = v => (v && typeof v === 'object' && !Array.isArray(v)) ? v : {};
 
         try {
-            // 🚀 [الإصلاح المعماري 1: Zero-Leak Firewall] - إضافة active_configs لقراءة الجدار الناري
+            // 🚀 [الإصلاح المعماري 1 & 2]: قراءة الجدار الناري من active_configs وإلغاء تحميل الـ 500 تقييم عند الإقلاع
             const staticPromises = [
-                FirebaseAdapter.getAll(DB_KEYS.RATES), FirebaseAdapter.getAll(DB_KEYS.TIERS), FirebaseAdapter.getAll(DB_KEYS.CATS), 
-                FirebaseAdapter.getAll(DB_KEYS.PRODS), FirebaseAdapter.getAll(DB_KEYS.PAYMENTS), FirebaseAdapter.getAll(DB_KEYS.BANNERS), 
-                FirebaseAdapter.getById(DB_KEYS.SETTINGS, 'singleton'), FirebaseAdapter.getById(DB_KEYS.POPUP, 'singleton'), FirebaseAdapter.getById(DB_KEYS.SYSTEM, 'singleton'), 
-                FirebaseAdapter.getById(DB_KEYS.ADMIN, adminUid || 'singleton'), 
-                FirebaseAdapter.getAll(DB_KEYS.COUNTRIES), FirebaseAdapter.getAll(DB_KEYS.VAULT), 
-                FirebaseAdapter.getAll(DB_KEYS.COUPONS), FirebaseAdapter.getAll(DB_KEYS.OFFERS), FirebaseAdapter.getAll(DB_KEYS.SUPPLIERS),
-                FirebaseAdapter.getAll(DB_KEYS.REVIEWS, 500),
-                FirebaseAdapter.getAll('telecard_statistics/all_time/tiers', 100),
-                FirebaseAdapter.getById(DB_KEYS.SYSTEM, 'active_configs') 
-            ];
+    FirebaseAdapter.getAll(DB_KEYS.RATES), FirebaseAdapter.getAll(DB_KEYS.TIERS), FirebaseAdapter.getAll(DB_KEYS.CATS),
+    FirebaseAdapter.getAll(DB_KEYS.PRODS), FirebaseAdapter.getAll(DB_KEYS.PAYMENTS), FirebaseAdapter.getAll(DB_KEYS.BANNERS),
+    FirebaseAdapter.getById(DB_KEYS.SETTINGS, 'singleton'), FirebaseAdapter.getById(DB_KEYS.SYSTEM, 'singleton'),
+    FirebaseAdapter.getById(DB_KEYS.ADMIN, adminUid || 'singleton'),
+    FirebaseAdapter.getAll(DB_KEYS.COUNTRIES), FirebaseAdapter.getAll(DB_KEYS.VAULT),
+    FirebaseAdapter.getAll(DB_KEYS.COUPONS), FirebaseAdapter.getAll(DB_KEYS.OFFERS), FirebaseAdapter.getAll(DB_KEYS.SUPPLIERS),
+    FirebaseAdapter.getAll('telecard_statistics/all_time/tiers', 100),
+    FirebaseAdapter.getById(DB_KEYS.SYSTEM, 'active_configs')
+];
 
-        const dynamicPromises = [
+const dynamicPromises = [
     FirebaseAdapter.callFunction('adminGetUsersList', { limit: 50 }),
     FirebaseAdapter.callFunction('adminGetOrdersList', { limit: 50 }),
     FirebaseAdapter.callFunction('adminGetDepositsList', { limit: 50 }),
@@ -157,32 +187,33 @@ export const AdminData = {
     getDocs(query(collection(FirebaseAdapter.db, DB_KEYS.USERS), where('kycStatus', '==', 'pending'), limit(200))),
     FirebaseAdapter.callFunction('adminGetDashboardStats', { leaderboardPeriod: 'all' }),
     this.fetchWalletsLiquidityAsync()
-];            const [staticResults, dynamicResults] = await Promise.all([
-                Promise.allSettled(staticPromises),
-                Promise.allSettled(dynamicPromises)
-            ]);
+];
 
-            const extract = (res, fallback) => res.status === 'fulfilled' && res.value ? res.value : fallback;
-            const extractCloud = (res) => (res.status === 'fulfilled' && res.value && res.value.success) ? res.value : { data: [], pagination: null };
+const [staticResults, dynamicResults] = await Promise.all([
+    Promise.allSettled(staticPromises),
+    Promise.allSettled(dynamicPromises)
+]);
 
-            const rRates = extract(staticResults[0], []);
-            const rTiers = extract(staticResults[1], []);
-            const rCats = extract(staticResults[2], []);
-            const rProds = extract(staticResults[3], []);
-            const rPayments = extract(staticResults[4], []);
-            const rBanners = extract(staticResults[5], []);
-            const rSettings = extract(staticResults[6], {});
-            const rNotif = extract(staticResults[7], {});
-            const rSystem = extract(staticResults[8], {});
-            const rAdmin = extract(staticResults[9], {});
-            const rCountries = extract(staticResults[10], []);
-            const rVault = extract(staticResults[11], []);
-            const rCoupons = extract(staticResults[12], []);
-            const rOffers = extract(staticResults[13], []);
-            const rSuppliers = extract(staticResults[14], []);
-            const rReviews = extract(staticResults[15], []);
-            const rTiersStatsList = extract(staticResults[16], []);
-            const rActiveConfigs = extract(staticResults[17], {}); // 🛡️ استخراج الكاش السري
+const extract = (res, fallback) => res.status === 'fulfilled' && res.value ? res.value : fallback;
+const extractCloud = (res) => (res.status === 'fulfilled' && res.value && res.value.success) ? res.value : { data: [], pagination: null };
+
+const rRates = extract(staticResults[0], []);
+const rTiers = extract(staticResults[1], []);
+const rCats = extract(staticResults[2], []);
+const rProds = extract(staticResults[3], []);
+const rPayments = extract(staticResults[4], []);
+const rBanners = extract(staticResults[5], []);
+const rSettings = extract(staticResults[6], {});
+const rSystem = extract(staticResults[7], {});
+const rAdmin = extract(staticResults[8], {});
+const rCountries = extract(staticResults[9], []);
+const rVault = extract(staticResults[10], []);
+const rCoupons = extract(staticResults[11], []);
+const rOffers = extract(staticResults[12], []);
+const rSuppliers = extract(staticResults[13], []);
+const rTiersStatsList = extract(staticResults[14], []);
+const rActiveConfigs = extract(staticResults[15], {});
+const rNotif = {};            this._reviewsLoaded = false;
 
             const rUsersCloud = extractCloud(dynamicResults[0]);
             const rOrdersCloud = extractCloud(dynamicResults[1]);
@@ -234,7 +265,7 @@ export const AdminData = {
                 minProfitUsd: Number(t.minProfitUsd ?? 0)
             }));
 
-            if(this.data.tiers.length === 0 || !this.data.tiers.some(t => t.isDefault)) await this.seedDefaultTiers();
+            if (this.data.tiers.length === 0 || !this.data.tiers.some(t => t.isDefault)) await this.seedDefaultTiers();
 
             // 🪪 حفظ طلبات التوثيق المعلقة في مصفوفة معزولة لضمان عدم فقدانها عند بحث أو فرز العملاء
             this.data.kycPendingUsers = arr(rKycUsers).map(u => ({
@@ -265,11 +296,11 @@ export const AdminData = {
             this.data.deposits = arr(rDepositsCloud.data);
             this.data.orders = arr(rOrdersCloud.data); 
             this.data.logs = arr(rLogsCloud.data);
-this.data.systemErrors = arr(rLogsCloud.systemErrors);
+            this.data.systemErrors = arr(rLogsCloud.systemErrors);
             this.data.alerts = arr(rAlertsObj.data);
             this.data.cats = arr(rCats);
             this.data.suppliers = arr(rSuppliers); 
-            this.data.reviews = arr(rReviews);
+            this.data.reviews = [];
             
             const normalizeCurrencyList = (val) => {
                 const allowed = new Set(this.data.rates.map(c => String(c.code).toUpperCase()));
@@ -375,24 +406,26 @@ this.data.systemErrors = arr(rLogsCloud.systemErrors);
         const liveBannedDevices = Array.isArray(activeConf.bannedDevices) ? activeConf.bannedDevices : (Array.isArray(sysSettings.bannedDevices) ? sysSettings.bannedDevices : []);
         stats.users.bannedIps = liveBannedIps.length;
         stats.users.bannedDevices = liveBannedDevices.length;
-        
         stats.alerts = [];
-        try {
-            if (Array.isArray(this.data.vault)) {
-                this.data.vault.forEach(v => {
-                    const stock = Number(v.stockCount || 0);
-                    if (stock === 0) stats.alerts.push({ id: 'vault_empty', poolName: v.name, time: nowTime, poolId: v.id });
-                    else if (stock <= (v.alertLimit || 5)) stats.alerts.push({ id: 'vault_low', poolName: v.name, count: stock, time: nowTime, poolId: v.id });
-                });
-            }
-        } catch(e) { console.error("Vault Alert Error:", e); }
-
+try {
+    if (Array.isArray(this.data.vault)) {
+        this.data.vault.forEach(v => {
+            const stock = Number(v.stockCount || 0);
+            if (stock === 0) stats.alerts.push({ id: 'vault_empty', poolName: v.name, time: 0, poolId: v.id });
+            else if (stock <= (v.alertLimit || 5)) stats.alerts.push({ id: 'vault_low', poolName: v.name, count: stock, time: 0, poolId: v.id });
+        });
+    }
+} catch (e) { console.error("Vault Alert Error:", e); }
         stats.alerts.sort((a, b) => parseSafeTime(b.time) - parseSafeTime(a.time));
         this.data.dashboardStats = stats;
         this.stats = stats;
 
         if (stats.pendingCounts) {
             window.AdminUI?.UsersUI?.updateSidebarKycBadge?.(Number(stats.pendingCounts.kyc || 0));
+            const bComp = document.getElementById('count-complaints');
+            if (bComp && !this._reviewsLoaded) {
+                bComp.innerText = Utils.enNum(Number(stats.pendingCounts.complaints || 0));
+            }
             const bDep = document.getElementById('badge-dep');
             const bOrd = document.getElementById('badge-ord');
             const dCount = Number(stats.pendingCounts.deposits || 0);
@@ -472,23 +505,26 @@ this.data.systemErrors = arr(rLogsCloud.systemErrors);
         }
     },
 
-    // 🛡️ دالة مساعدة لحقن deleteField() داخل الكائنات الفرعية (مثل tierPrices و currencySettings) عند استخدام set + merge
+    // 🛡️ دالة مساعدة لتنظيف undefined وحقن deleteField() داخل الكائنات الفرعية العادية فقط بأمان تام
     _buildSafeMergeObject: function(newVal, oldVal) {
-        if (!newVal || typeof newVal !== 'object' || Array.isArray(newVal) || typeof newVal.toMillis === 'function') {
+        const isPlainObj = (v) => Boolean(v && typeof v === 'object' && v.constructor === Object);
+        if (!isPlainObj(newVal)) {
             return newVal;
         }
-        if (!oldVal || typeof oldVal !== 'object' || Array.isArray(oldVal)) {
-            return newVal;
+        const merged = {};
+        Object.keys(newVal).forEach(k => {
+            if (newVal[k] !== undefined) {
+                merged[k] = isPlainObj(newVal[k])
+                    ? this._buildSafeMergeObject(newVal[k], isPlainObj(oldVal) ? oldVal[k] : null)
+                    : newVal[k];
+            }
+        });
+        if (!isPlainObj(oldVal)) {
+            return merged;
         }
-        const merged = { ...newVal };
         Object.keys(oldVal).forEach(subKey => {
             if (newVal[subKey] === undefined || !(subKey in newVal)) {
                 merged[subKey] = deleteField();
-            } else if (
-                typeof newVal[subKey] === 'object' && newVal[subKey] !== null && !Array.isArray(newVal[subKey]) &&
-                typeof oldVal[subKey] === 'object' && oldVal[subKey] !== null && !Array.isArray(oldVal[subKey])
-            ) {
-                merged[subKey] = this._buildSafeMergeObject(newVal[subKey], oldVal[subKey]);
             }
         });
         return merged;
@@ -528,7 +564,8 @@ this.data.systemErrors = arr(rLogsCloud.systemErrors);
 
             if (!old) {
                 if (prop === 'prods' && item.isActive === undefined) item.isActive = true;
-                currentBatch.set(docRef, item, { merge: true });
+                const cleanItem = this._buildSafeMergeObject(item, null);
+                currentBatch.set(docRef, cleanItem, { merge: true });
                 operationCount++;
                 hasAnyChanges = true;
             } else {
@@ -595,7 +632,7 @@ this.data.systemErrors = arr(rLogsCloud.systemErrors);
         try {
             const result = await FirebaseAdapter.callFunction('adminForceSyncCatalog', {});
             if (result && result.success) return { success: true, message: result.message };
-            return { success: false, message: 'تعذر تأكيد المزامنة من السيرفر.' };
+            return { success: false, message: result.message || 'تعذر تأكيد المزامنة من السيرفر.' };
         } catch (error) { return { success: false, message: error.message }; }
     },
 
@@ -661,10 +698,18 @@ this.data.systemErrors = arr(rLogsCloud.systemErrors);
         if (this.isSeedingTiers) return;
         this.isSeedingTiers = true;
         try {
-            const defaultTierId = 'TIER_DEFAULT'; 
-            if (this.data.tiers.some(t => String(t.id) === defaultTierId || t.isDefault)) return;
-            const defaultTier = { id: defaultTierId, name: 'عضو جديد', nameAr: 'عضو جديد', type: 'retail', icon: 'fa-user', color: '#FFD700', isDefault: true, threshold: 0, durationDays: 0, profitPercent: 5, minProfitUsd: 0, autoAdvance: true, createdAt: Date.now() };
             if (!Array.isArray(this.data.tiers)) this.data.tiers = [];
+            if (this.data.tiers.some(t => t && t.isDefault)) return;
+
+            const defaultTierId = 'TIER_DEFAULT'; 
+            const existingDefault = this.data.tiers.find(t => t && String(t.id) === defaultTierId);
+            if (existingDefault) {
+                existingDefault.isDefault = true;
+                await FirebaseAdapter.set(DB_KEYS.TIERS, existingDefault.id, existingDefault);
+                return;
+            }
+
+            const defaultTier = { id: defaultTierId, name: 'عضو جديد', nameAr: 'عضو جديد', type: 'retail', icon: 'fa-user', color: '#FFD700', isDefault: true, threshold: 0, durationDays: 0, profitPercent: 5, minProfitUsd: 0, autoAdvance: true, createdAt: Date.now() };
             this.data.tiers.push(defaultTier);
             await FirebaseAdapter.set(DB_KEYS.TIERS, defaultTier.id, defaultTier);
         } finally { this.isSeedingTiers = false; }

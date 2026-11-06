@@ -1,10 +1,12 @@
 // ============================================================================
-// 💰 وحدة المالية والإيداعات (modules/finance/financeUI.js) - Cloud-Native V19.5 💎
-// 🚀 التحديث الأقصى (V19.5 - Currency Inputs Preservation & Cloud Drawer Resolver): 
-// 1. Currency Row Selector Fix 🛡️: حفظ مدخلات العمولات والحدود عند تفعيل عملات متعددة في بوابة الدفع.
-// 2. Cloud Deposit Fallback ☁️: جلب الإيداع سحابياً إذا فُتح من سجل العميل القديم خارج أول 50 إيداعاً.
-// 3. Profile Avatar & Admin Tx Support 🖼️: دعم user.profileImage وتمييز القيود الإدارية المباشرة.
-// 4. Double Escaping Fix 🐛: إصلاح تلف روابط الإيصالات والشعارات وصورة العميل وملاحظة الإدارة.
+// 💰 وحدة المالية والإيداعات (modules/finance/financeUI.js) - Cloud-Native V19.7 💎
+// 🚀 التحديثات المعمارية: 
+// 1. Single-Authority Modal Open 🎯: إزالة التفعيل المزدوج للكلاسات والاعتماد حصرياً على EventBus('req-open-modal') لقفل التمرير وتفعيل الدرع بسلاسة.
+// 2. Drawer Overlay Animation 🚪: استخدام كلاس الغلاف .drawer-overlay لتمكين انزلاقه السلس من اليمين.
+// 3. Gold Stamp Badge Fix 🎖️: الحفاظ على كلاس .dr-order-stamp مع بادئة الشباك (#) للختم المالي المذهب.
+// 4. Currency Inputs Preservation 🛡️: حفظ مدخلات العمولات والحدود عند تفعيل عملات متعددة لبوابات الدفع.
+// 5. Cloud Deposit Fallback ☁️: جلب الإيداع سحابياً عند فتحه من سجل العميل خارج أول 50 إيداعاً محلياً.
+// 6. Two-Tabs Architecture 🏛️: دعم التبديل السلس بين تبويبات بوابات الدفع (General/Finance) مع التعيين الافتراضي الدقيق.
 // ============================================================================
 
 import { AdminData } from '../../adminData.js';
@@ -37,7 +39,7 @@ export const FinanceUI = {
         modal.innerHTML = FinanceTemplates.currencyEditModal();
         this.setupCurrencyModal(cur);
         void modal.offsetWidth;
-        requestAnimationFrame(() => modal.classList.add('active'));
+        EventBus.emit('req-open-modal', 'currency');
     },
 
     setupCurrencyModal: function(cur) {
@@ -47,10 +49,11 @@ export const FinanceUI = {
         if (titleEl) titleEl.innerHTML = cur ? '<i class="fa-solid fa-money-bill-transfer me-1"></i> تعديل عملة' : '<i class="fa-solid fa-money-bill-transfer me-1"></i> إضافة عملة جديدة'; 
         
         safeSetVal('cur-old-code', cur ? cur.code : '');
-safeSetVal('cur-code', cur ? cur.code : '');
-const codeInput = document.getElementById('cur-code');
-if (codeInput) codeInput.disabled = Boolean(cur && cur.code);
-safeSetVal('cur-name', cur ? cur.name : '');        safeSetVal('cur-symbol', cur ? cur.symbol : ''); 
+        safeSetVal('cur-code', cur ? cur.code : '');
+        const codeInput = document.getElementById('cur-code');
+        if (codeInput) codeInput.disabled = Boolean(cur && cur.code);
+        safeSetVal('cur-name', cur ? cur.name : '');        
+        safeSetVal('cur-symbol', cur ? cur.symbol : ''); 
         safeSetVal('cur-price-rate', cur ? cur.priceRate : ''); 
         safeSetVal('cur-dep-rate', cur ? cur.depRate : '');
     },
@@ -58,6 +61,29 @@ safeSetVal('cur-name', cur ? cur.name : '');        safeSetVal('cur-symbol', cur
     // ---------------------------------------------------------
     // 🏦 2. نوافذ بوابات الدفع (Payment Gateways)
     // ---------------------------------------------------------
+    switchPayTab: function(tabId) {
+        if (!tabId) return;
+        const modal = document.getElementById('m-payment');
+        if (!modal) return;
+
+        modal.querySelectorAll('.pay-tab-btn').forEach(btn => {
+            const isTarget = (btn.dataset.tab === tabId);
+            if (isTarget) {
+                btn.classList.add('active', 'btn-primary');
+                btn.classList.remove('btn-ghost');
+            } else {
+                btn.classList.remove('active', 'btn-primary');
+                btn.classList.add('btn-ghost');
+            }
+        });
+
+        modal.querySelectorAll('.pay-tab-pane').forEach(pane => {
+            const isTarget = (pane.id === tabId);
+            pane.classList.toggle('active', isTarget);
+            pane.classList.toggle('hide-element', !isTarget);
+        });
+    },
+
     openPaymentModal: function(id = null) {
         try {
             EventBus.emit('set-temp-edit-id', id);
@@ -74,9 +100,10 @@ safeSetVal('cur-name', cur ? cur.name : '');        safeSetVal('cur-symbol', cur
 
             modal.innerHTML = FinanceTemplates.paymentEditModal();
             this.setupPaymentModal(pay, rates);
+            this.switchPayTab('pay-tab-general');
             
             void modal.offsetWidth;
-            requestAnimationFrame(() => modal.classList.add('active'));
+            EventBus.emit('req-open-modal', 'payment');
             
         } catch (error) {
             console.error("🚨 خطأ في فتح المودال:", error);
@@ -137,7 +164,7 @@ safeSetVal('cur-name', cur ? cur.name : '');        safeSetVal('cur-symbol', cur
                 imgEl.classList.remove('hide-element');
                 wrapEl.classList.add('has-img');
             } else {
-                imgEl.src = '';
+                imgEl.removeAttribute('src');
                 imgEl.classList.add('hide-element');
                 wrapEl.classList.remove('has-img');
             }
@@ -153,7 +180,7 @@ safeSetVal('cur-name', cur ? cur.name : '');        safeSetVal('cur-symbol', cur
 
         const chkBoxes = Array.from(document.querySelectorAll('.pay-curr-chk:checked')).map(c => c.value);
         
-        if(chkBoxes.length > 0) container.classList.remove('hide-element');
+        if (chkBoxes.length > 0) container.classList.remove('hide-element');
         else container.classList.add('hide-element');
 
         const currentInputs = {};
@@ -201,7 +228,6 @@ safeSetVal('cur-name', cur ? cur.name : '');        safeSetVal('cur-symbol', cur
             const displayCode = RenderHelpers.getCurrencySymbolText(code); 
             const safeDisplayCode = displayCode != null ? String(displayCode) : '';
             
-            // 🚀 تم الإصلاح: إرسال المتغيرات كما هي بدون Utils.escapeHTML لمنع التشفير المزدوج للبيانات
             html += FinanceTemplates.currencySettingRow(
                 code, 
                 safeDisplayCode, 
@@ -228,6 +254,37 @@ safeSetVal('cur-name', cur ? cur.name : '');        safeSetVal('cur-symbol', cur
         });
     },
 
+    handleFeeTypeChange: function(code, newType) {
+        if (!code) return;
+        const isBonus = (newType === 'bonus');
+        const themeColor = isBonus ? 'text-success' : 'text-danger';
+
+        const valLbl = document.getElementById(`lbl-fee-val-${code}`);
+        const maxLbl = document.getElementById(`lbl-fee-max-${code}`);
+        const minLbl = document.getElementById(`lbl-fee-min-${code}`);
+
+        if (valLbl) {
+            valLbl.className = `form-label curr-setting-lbl ${themeColor}`;
+            valLbl.innerHTML = isBonus 
+                ? '<i class="fa-solid fa-gift me-1"></i> نسبة / قيمة البونص' 
+                : 'قيمة العمولة المقتطعة';
+        }
+
+        if (maxLbl) {
+            maxLbl.className = `form-label curr-setting-lbl ${themeColor}`;
+            maxLbl.innerHTML = isBonus 
+                ? 'أقصى بونص إضافي (سقف الهدية)' 
+                : 'أعلى سقف للعمولة المقتطعة';
+        }
+
+        if (minLbl) {
+            minLbl.className = `form-label curr-setting-lbl ${themeColor}`;
+            minLbl.innerHTML = isBonus 
+                ? 'أدنى بونص ممنوح' 
+                : 'أدنى عمولة مقتطعة (قاع)';
+        }
+    },
+
     // ---------------------------------------------------------
     // 🧾 3. درج الإيداعات (Deposit Drawer)
     // ---------------------------------------------------------
@@ -250,7 +307,7 @@ safeSetVal('cur-name', cur ? cur.name : '');        safeSetVal('cur-symbol', cur
             }
         }
 
-        if(!dep) {
+        if (!dep) {
             UIService?.showToast?.('تعذر العثور على تفاصيل هذا الإيداع.', 'error');
             return;
         }
@@ -262,7 +319,8 @@ safeSetVal('cur-name', cur ? cur.name : '');        safeSetVal('cur-symbol', cur
         if (!drawerOverlay) {
             drawerOverlay = document.createElement('div');
             drawerOverlay.id = 'deposit-drawer-overlay';
-            drawerOverlay.className = 'sys-overlay dynamic-auto-destroy'; 
+            drawerOverlay.className = 'drawer-overlay dynamic-auto-destroy';
+            drawerOverlay.dataset.action = 'close-deposit-drawer';
             document.body.appendChild(drawerOverlay);
         }
 
@@ -273,24 +331,24 @@ safeSetVal('cur-name', cur ? cur.name : '');        safeSetVal('cur-symbol', cur
         const noteInput = document.getElementById('dep-drawer-note');
         const idBadge = document.getElementById('drawer-dep-id');
 
-        if(!bodyContent || !footerActions) return;
+        if (!bodyContent || !footerActions) return;
         
         const scrollArea = drawerOverlay.querySelector('.drawer-scroll-area');
-        if(scrollArea) scrollArea.scrollTop = 0;
+        if (scrollArea) scrollArea.scrollTop = 0;
 
-        if(noteInput) {
+        if (noteInput) {
             noteInput.value = ''; 
             
             if (!noteInput.hasAttribute('data-events-bound')) {
                 noteInput.setAttribute('data-events-bound', 'true');
                 noteInput.addEventListener('focus', function() {
                     const drawerContainer = document.querySelector('#deposit-drawer');
-                    if(drawerContainer) drawerContainer.classList.add('typing-mode');
+                    if (drawerContainer) drawerContainer.classList.add('typing-mode');
                     setTimeout(() => { this.scrollIntoView({ behavior: 'auto', block: 'nearest' }); }, 300); 
                 });
                 noteInput.addEventListener('blur', function() {
                     const drawerContainer = document.querySelector('#deposit-drawer');
-                    if(drawerContainer) drawerContainer.classList.remove('typing-mode');
+                    if (drawerContainer) drawerContainer.classList.remove('typing-mode');
                 });
             }
 
@@ -299,16 +357,15 @@ safeSetVal('cur-name', cur ? cur.name : '');        safeSetVal('cur-symbol', cur
             else noteWrapper.classList.add('hide-element');
         }
 
-        if(idBadge) {
+        if (idBadge) {
             const formattedDepId = RenderHelpers.formatDepositId(dep);
-            idBadge.innerHTML = formattedDepId;
-            idBadge.className = 'drawer-dep-id-badge'; 
+            idBadge.innerHTML = `#${formattedDepId}`;
+            idBadge.className = 'dr-order-stamp num-en font-numeric'; 
             idBadge.removeAttribute('data-action');
             idBadge.removeAttribute('data-copy-text');
             idBadge.title = "";
         }
 
-        // 🚀 تم الإصلاح: عدم استخدام Utils.escapeHTML للروابط والبيانات الأولية لمنع التشفير المزدوج
         const user = AdminData.data.usersMap?.[dep.userId] || { id: dep.userId, displayId: dep.userDataSnapshot?.displayId };
         const displayUser = String(dep.userDataSnapshot?.fullName || dep.userName || user.fullName || user.name || user.username || 'مستخدم');
         const firstLetter = displayUser.replace('@', '').charAt(0).toUpperCase();
@@ -373,9 +430,8 @@ safeSetVal('cur-name', cur ? cur.name : '');        safeSetVal('cur-symbol', cur
             feeStr = `- ${RenderHelpers.formatMoney(feeAmount, payCurr, 2)}`;
         }
 
-        // 🚀 تم الإصلاح: إرسال الرابط الأصلي للقالب حيث يتم تعقيمه هناك لمرة واحدة فقط
         let receiptHtml = '';
-        if(dep.receipt) receiptHtml = FinanceTemplates.depositReceiptCard(dep.receipt);
+        if (dep.receipt) receiptHtml = FinanceTemplates.depositReceiptCard(dep.receipt);
 
         let replyHtml = '';
         const adminManualReply = dep.adminNote || ''; 
@@ -427,8 +483,8 @@ safeSetVal('cur-name', cur ? cur.name : '');        safeSetVal('cur-symbol', cur
         setTimeout(() => {
             const sArea = drawerOverlay.querySelector('.drawer-scroll-area');
             const drawerPanel = drawerOverlay.firstElementChild; 
-            if(sArea) { sArea.classList.add('overflow-y-hidden'); sArea.scrollTop = 0; sArea.classList.remove('overflow-y-hidden'); }
-            if(drawerPanel) drawerPanel.scrollTop = 0;
+            if (sArea) { sArea.classList.add('overflow-y-hidden'); sArea.scrollTop = 0; sArea.classList.remove('overflow-y-hidden'); }
+            if (drawerPanel) drawerPanel.scrollTop = 0;
             drawerOverlay.scrollTop = 0;
         }, 50);
     },  

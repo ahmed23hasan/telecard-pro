@@ -26,15 +26,14 @@ const messaging = firebase.messaging();
 messaging.onBackgroundMessage((payload) => {
     console.log('[Admin Radar] 📡 نبضة جديدة وصلت في الخلفية:', payload);
     
-    const notificationTitle = payload.notification?.title || 'غرفة العمليات (TeleCard)';
-    const notificationOptions = {
-        body: payload.notification?.body || 'يوجد تحديث جديد يحتاج لمراجعتك.',
-        icon: 'https://cdn-icons-png.flaticon.com/512/6823/6823086.png',
-        data: payload.data || {},
-        vibrate: [200, 100, 200, 100, 200, 100, 200],
-        requireInteraction: true
-    };
-    
+    const notificationTitle = payload.notification?.title || payload.data?.title || 'غرفة العمليات (TeleCard)';
+const notificationOptions = {
+    body: payload.notification?.body || payload.data?.body || 'يوجد تحديث جديد يحتاج لمراجعتك.',
+    icon: payload.notification?.icon || payload.data?.icon || 'https://cdn-icons-png.flaticon.com/512/6823/6823086.png',
+    data: payload.data || {},
+    vibrate: [200, 100, 200, 100, 200, 100, 200],
+    requireInteraction: true
+};    
     // 🔔 إرسال نبضة إلى نافذة الإدارة المفتوحة لكسر قفل الشارات وتحديثها فوراً
     self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((windowClients) => {
         windowClients.forEach((client) => {

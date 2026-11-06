@@ -1,9 +1,11 @@
 // ============================================================================
-// 💰 قوالب المالية والإيداعات (modules/finance/financeTemplates.js) - Enterprise V19.5 💎
-// 🚀 التحديث الأقصى (V19.5 - Server Schema Alignment & Admin Tx Guard): 
-// 1. Liquidity Banner Fix 🛡️: قراءة حقل السيرفر الصحيح (stuckLocalBalance) لمنع ظهور undefined.
-// 2. Wallet Card Resilience 💵: دعم عرض بيانات السيولة سواء كانت رقماً مباشراً من السيرفر أو كائناً مجمعاً.
-// 3. Admin Deposit Footer Guard 🔒: تمييز العمليات الإدارية (إيداع/خصم إداري) في الدرج لمنع التضارب مع السيرفر.
+// 💰 قوالب المالية والإيداعات (modules/finance/financeTemplates.js) - Enterprise V20.2 💎
+// ============================================================================
+// 🌟 التحديثات المعمارية:
+// 1. Dual Price Typography 🏷️: استبدال .dual-price-sub بالكلاسات المعتمدة (.fs-11.text-muted).
+// 2. Upload Box Architecture 🖼️: إعادة هيكلة صندوق رفع شعار البوابة وربط حدث النقر بالحاوية الرئيسية
+//    واعتماد الأيقونة الذهبية .upload-icon-gold والنص التوضيحي .upload-hint-text.
+// 3. Stamp Badge Standardization 🎖️: تنظيف الكلاسات غير المعرّفة من ختم رقم الإيداع بالدرج الجانبي.
 // ============================================================================
 
 import { AdminData } from '../../adminData.js';
@@ -56,11 +58,11 @@ export const FinanceTemplates = {
         }
 
         let dualAmountHtml = '';
-if (localCurr && localCurr !== target) {
-    dualAmountHtml = `<span class="${priceColor}">${sign} ${RenderHelpers.formatMoney(absNetBase, target, 2)}</span> <span class="dual-price-sub font-numeric" dir="ltr">(${RenderHelpers.formatMoney(absLocal, localCurr, 2)})</span>`;
-} else {
-    dualAmountHtml = `<span class="single-price ${priceColor}">${sign} ${RenderHelpers.formatMoney(absNetBase, target, 2)}</span>`;
-}
+        if (localCurr && localCurr !== target) {
+            dualAmountHtml = `<span class="${priceColor}">${sign} ${RenderHelpers.formatMoney(absNetBase, target, 2)}</span> <span class="fs-11 text-muted font-numeric" dir="ltr">(${RenderHelpers.formatMoney(absLocal, localCurr, 2)})</span>`;
+        } else {
+            dualAmountHtml = `<span class="single-price ${priceColor}">${sign} ${RenderHelpers.formatMoney(absNetBase, target, 2)}</span>`;
+        }
         const formattedDepositId = RenderHelpers.formatDepositId(d);
 
         return `<div id="deposit-card-${_esc(d.id)}" class="dep-card interactive-scale ${cardCls} ${(isRej || isRef) ? 'locked' : ''}" data-status="${exactStatus}" data-action="open-deposit-drawer" data-id="${_esc(d.id)}">
@@ -106,28 +108,35 @@ if (localCurr && localCurr !== target) {
     liquidityWarningBanner: (uncalculatedCurrencies) => {
         let detailsHtml = uncalculatedCurrencies.map(c => {
             const stuckVal = c.stuckLocalBalance ?? c.totalBalance ?? 0;
-            return `<div class="fs-12"> • عملة <b>${_esc(c.currency)}</b>: رصيد عالق <span class="num-en font-numeric" dir="ltr">${_esc(stuckVal)}</span> <span class="text-muted fs-11">(${_esc(c.reason)})</span></div>`;
+            return `<div class="fs-12 text-main"> • عملة <b>${_esc(c.currency)}</b>: رصيد عالق <span class="num-en font-numeric" dir="ltr">${_esc(stuckVal)}</span> <span class="text-muted fs-11">(${_esc(c.reason)})</span></div>`;
         }).join('');
         
-        return `<div class="wallet-card warning-liability interactive-scale w-100 mb-15 bg-danger-subtle border-danger">
+        return `<div class="wallet-card warning-liability interactive-scale w-100 mb-15">
                     <div class="wc-title text-danger fw-bold"><i class="fa-solid fa-triangle-exclamation me-1"></i> تحذير محاسبي: سيولة غير محسوبة!</div>
-                    <div class="wc-meta text-dark mt-10">توجد أرصدة للعملاء لم يتم تحويلها وإضافتها للإجمالي بالدولار بسبب غياب سعر الصرف:</div>
+                    <div class="wc-meta text-main mt-5">توجد أرصدة للعملاء لم يتم تحويلها وإضافتها للإجمالي بالدولار بسبب غياب سعر الصرف:</div>
                     <div class="mt-5">${detailsHtml}</div>
-                    <div class="wc-meta text-danger mt-10 fw-bold"><i class="fa-solid fa-gear me-1"></i> يرجى التوجه لإعدادات العملات وإصلاح أسعار الصرف.</div>
+                    <div class="wc-meta text-danger mt-5 fw-bold"><i class="fa-solid fa-gear me-1"></i> يرجى التوجه لإعدادات العملات وإصلاح أسعار الصرف.</div>
                 </div>`;
     },
 
     currencySettingRow: (code, displayCode, oldFeeType, oldFeeUnit, oldFee, oldMin, oldMax, oldMinFee, oldMaxFee) => {
+        const isBonus = (oldFeeType === 'bonus');
+        const themeColor = isBonus ? 'text-success' : 'text-danger';
+
         return `
-        <div class="curr-setting-row currency-setting-row" id="curr-setting-${_esc(code)}" data-code="${_esc(code)}">
-            <div class="curr-setting-title">إعدادات عملة ${_esc(code)} <span class="text-muted fs-11 num-en font-numeric ms-1" dir="ltr">(${_esc(displayCode)})</span></div>
+        <div class="curr-setting-row" id="curr-setting-${_esc(code)}" data-code="${_esc(code)}">
+            <div class="curr-setting-title">
+                <i class="fa-solid fa-coins text-gold"></i>
+                <span>إعدادات ${isBonus ? 'بونص' : 'عمولة'} وحدود عملة ${_esc(code)}</span>
+                <span class="rate-code-hint font-numeric" dir="ltr" lang="en">(${_esc(displayCode)})</span>
+            </div>
             
-            <div class="curr-setting-inputs">
+            <div class="curr-setting-grid">
                 <div class="form-group mb-0">
-                    <label class="form-label curr-setting-lbl">النوع</label>
-                    <select id="pay-feetype-${_esc(code)}" class="form-input select-shared" dir="rtl" data-val="${_esc(oldFeeType)}">
-                        <option value="fee" ${oldFeeType !== 'bonus' ? 'selected' : ''}>عمولة (-)</option>
-                        <option value="bonus" ${oldFeeType === 'bonus' ? 'selected' : ''}>بونص (+)</option>
+                    <label class="form-label curr-setting-lbl">نظام المعاملة</label>
+                    <select id="pay-feetype-${_esc(code)}" class="form-input select-shared" dir="rtl" data-action="change-fee-type" data-code="${_esc(code)}" data-val="${_esc(oldFeeType)}">
+                        <option value="fee" ${!isBonus ? 'selected' : ''}>عمولة خصم (-)</option>
+                        <option value="bonus" ${isBonus ? 'selected' : ''}>بونص إضافي (+)</option>
                     </select>
                 </div>
 
@@ -140,32 +149,38 @@ if (localCurr && localCurr !== target) {
                 </div>
                 
                 <div class="form-group mb-0">
-                    <label class="form-label curr-setting-lbl">القيمة</label>
-                    <input type="text" inputmode="decimal" id="pay-fee-${_esc(code)}" class="form-input num-en font-numeric" dir="ltr" lang="en" value="${_esc(oldFee)}" placeholder="0.0">
+                    <label class="form-label curr-setting-lbl ${themeColor}" id="lbl-fee-val-${_esc(code)}">
+                        ${isBonus ? '<i class="fa-solid fa-gift me-1"></i> نسبة / قيمة البونص' : 'قيمة العمولة المقتطعة'}
+                    </label>
+                    <input type="text" inputmode="decimal" id="pay-fee-${_esc(code)}" class="form-input num-en font-numeric" dir="ltr" lang="en" placeholder="0.0" value="${_esc(oldFee)}">
                 </div>
 
                 <div class="form-group mb-0">
-                    <label class="form-label curr-setting-lbl text-danger">أدنى عمولة/بونص</label>
-                    <input type="text" inputmode="decimal" id="pay-minfee-${_esc(code)}" class="form-input num-en font-numeric" dir="ltr" lang="en" value="${_esc(oldMinFee)}" placeholder="0.00">
+                    <label class="form-label curr-setting-lbl ${themeColor}" id="lbl-fee-max-${_esc(code)}">
+                        ${isBonus ? 'أقصى بونص إضافي (سقف الهدية)' : 'أعلى سقف للعمولة المقتطعة'}
+                    </label>
+                    <input type="text" inputmode="decimal" id="pay-maxfee-${_esc(code)}" class="form-input num-en font-numeric" dir="ltr" lang="en" placeholder="0.00" value="${_esc(oldMaxFee)}">
+                </div>
+
+                <div class="form-group mb-0">
+                    <label class="form-label curr-setting-lbl text-main">أدنى حد للإيداع</label>
+                    <input type="text" inputmode="decimal" id="pay-min-${_esc(code)}" class="form-input num-en font-numeric" dir="ltr" lang="en" placeholder="0.00" value="${_esc(oldMin)}">
                 </div>
                 
                 <div class="form-group mb-0">
-                    <label class="form-label curr-setting-lbl text-danger">أعلى عمولة/بونص</label>
-                    <input type="text" inputmode="decimal" id="pay-maxfee-${_esc(code)}" class="form-input num-en font-numeric" dir="ltr" lang="en" value="${_esc(oldMaxFee)}" placeholder="0.00">
+                    <label class="form-label curr-setting-lbl text-main">أعلى حد للإيداع</label>
+                    <input type="text" inputmode="decimal" id="pay-max-${_esc(code)}" class="form-input num-en font-numeric" dir="ltr" lang="en" placeholder="0.00" value="${_esc(oldMax)}">
                 </div>
 
-                <div class="form-group mb-0 col-span-1-5">
-                    <label class="form-label curr-setting-lbl text-success">أدنى حد للإيداع</label>
-                    <input type="text" inputmode="decimal" id="pay-min-${_esc(code)}" class="form-input num-en font-numeric" dir="ltr" lang="en" value="${_esc(oldMin)}" placeholder="0.00">
-                </div>
-                
-                <div class="form-group mb-0 col-span-1-5">
-                    <label class="form-label curr-setting-lbl text-success">أعلى حد للإيداع</label>
-                    <input type="text" inputmode="decimal" id="pay-max-${_esc(code)}" class="form-input num-en font-numeric" dir="ltr" lang="en" value="${_esc(oldMax)}" placeholder="0.00">
+                <div class="form-group mb-0 curr-grid-full">
+                    <label class="form-label curr-setting-lbl ${themeColor}" id="lbl-fee-min-${_esc(code)}">
+                        ${isBonus ? 'أدنى بونص ممنوح' : 'أدنى عمولة مقتطعة (قاع)'}
+                    </label>
+                    <input type="text" inputmode="decimal" id="pay-minfee-${_esc(code)}" class="form-input num-en font-numeric" dir="ltr" lang="en" placeholder="0.00" value="${_esc(oldMinFee)}">
                 </div>
             </div>
         </div>`;
-    },
+    },    
 
     paymentItem: (p) => {
         const isActive = p.isActive !== false;
@@ -177,7 +192,7 @@ if (localCurr && localCurr !== target) {
                             </div>
                             <div class="tc-name">
                                 <h2>${_esc(p.name || 'طريقة دفع')}</h2>
-                                ${isActive ? '<span class="tc-badge text-success"><i class="fa-solid fa-check-circle me-1"></i> مفعلة</span>' : '<span class="tc-badge text-danger"><i class="fa-solid fa-ban me-1"></i> متوقفة</span>'}
+                                ${isActive ? '<span class="v-stat-chip chip-success fs-10"><i class="fa-solid fa-check-circle"></i> مفعلة</span>' : '<span class="v-stat-chip chip-danger fs-10"><i class="fa-solid fa-ban"></i> متوقفة</span>'}
                             </div>
                         </div>
                         <div class="pay-card-actions flex-center-gap">
@@ -198,10 +213,10 @@ if (localCurr && localCurr !== target) {
     },
 
     payDetailItem: (item, i, text, isCopyable) => `<div class="pay-det-item pay-det-box">
-                    <div class="pay-det-text">${_esc(text).replace(/\n/g, '<br>')}${isCopyable ? '<div class="mt-6"><span class="pay-badge-copyable"><i class="fa-solid fa-copy me-1"></i> قابل للنسخ بالمتجر</span></div>' : '<div class="mt-6"><span class="pay-badge-viewonly"><i class="fa-solid fa-eye me-1"></i> عنوان للعرض فقط</span></div>'}</div>
-                    <div class="d-flex flex-column gap-2">
+                    <div class="pay-det-text">${_esc(text).replace(/\n/g, '<br>')}${isCopyable ? '<div><span class="pay-badge-copyable"><i class="fa-solid fa-copy me-1"></i> قابل للنسخ بالمتجر</span></div>' : '<div><span class="pay-badge-viewonly"><i class="fa-solid fa-eye me-1"></i> عنوان للعرض فقط</span></div>'}</div>
+                    <div class="flex-align-center gap-2">
                         <button class="btn btn-ghost btn-compact btn-pay-det-copy interactive-scale" data-action="copy-text" data-copy-text="${_esc(text)}" title="نسخ للإدارة"><i class="fa-solid fa-copy"></i></button>
-                        <button class="btn btn-outline-danger btn-compact btn-pay-det-del interactive-scale" data-action="remove-pay-detail" data-index="${i}" title="حذف"><i class="fa-solid fa-trash"></i></button>
+                        <button class="btn btn-pay-det-del interactive-scale" data-action="remove-pay-detail" data-index="${i}" title="حذف"><i class="fa-solid fa-trash"></i></button>
                     </div>
                 </div>`,    
 
@@ -223,31 +238,30 @@ if (localCurr && localCurr !== target) {
         return `<div id="rate-card-${_esc(c.code)}" class="rate-card-box ${isBase ? 'rate-card-base' : ''} ${isDefaultDisplay ? 'is-default-display' : ''}">
                 ${displayBadge}
                 
-                <div class="rate-main-wrapper">
-                    <div class="rate-symbol-box font-numeric" dir="ltr" lang="en">${RenderHelpers.getCurrencySymbolText(c.code)}</div>
-                    
-                    <div class="rate-info-col">
+                <div class="rate-top-row">
+                    <div class="rate-main-wrapper">
+                        <div class="rate-symbol-box font-numeric" dir="ltr" lang="en">${RenderHelpers.getCurrencySymbolText(c.code)}</div>
                         <div class="rate-title-row">
                             <img src="${flagUrl}" class="rate-flag-mini" alt="${_esc(c.code)}">
                             <span class="rate-name-text">${_esc(c.name)}</span>
                             <span class="num-en rate-code-hint font-numeric" dir="ltr" lang="en">(${_esc(c.code)})</span>
                             ${isBase ? '<span class="rate-base-badge">المرساة</span>' : ''}
                         </div>
-                        
-                        <div class="rate-values-row">
-                            <span class="rate-val-group">سعر البيع: <span class="num-en val-sell font-numeric" dir="ltr" lang="en">${_enNum(c.priceRate)}</span></span>
-                            <span class="rate-val-group">سعر الإيداع: <span class="num-en val-buy font-numeric" dir="ltr" lang="en">${_enNum(c.depRate)}</span></span>
-                            <span class="rate-usd-hint font-numeric" dir="ltr">(مقابل 1$)</span>
-                        </div>
+                    </div>
+                    
+                    <div class="rate-actions">
+                        ${setDisplayBtn}
+                        ${!isBase ? `
+                            <button class="action-mini btn-edit-mini interactive-scale" data-action="open-edit-currency" data-code="${_esc(c.code)}" title="تعديل"><i class="fa-solid fa-pen"></i></button>
+                            <button class="action-mini btn-del-mini interactive-scale" data-action="delete-currency" data-code="${_esc(c.code)}" title="حذف"><i class="fa-solid fa-trash"></i></button>
+                        ` : ''}
                     </div>
                 </div>
-                
-                <div class="rate-actions">
-                    ${setDisplayBtn}
-                    ${!isBase ? `
-                        <button class="action-mini btn-edit-mini interactive-scale" data-action="open-edit-currency" data-code="${_esc(c.code)}" title="تعديل"><i class="fa-solid fa-pen"></i></button>
-                        <button class="action-mini btn-del-mini interactive-scale" data-action="delete-currency" data-code="${_esc(c.code)}" title="حذف"><i class="fa-solid fa-trash"></i></button>
-                    ` : ''}
+
+                <div class="rate-values-row">
+                    <span class="rate-val-group">سعر البيع: <span class="num-en val-sell font-numeric" dir="ltr" lang="en">${_enNum(c.priceRate)}</span></span>
+                    <span class="rate-val-group">سعر الإيداع: <span class="num-en val-buy font-numeric" dir="ltr" lang="en">${_enNum(c.depRate)}</span></span>
+                    <span class="rate-usd-hint font-numeric" dir="ltr">(مقابل 1$)</span>
                 </div>
             </div>`;
     },
@@ -257,7 +271,7 @@ if (localCurr && localCurr !== target) {
         : `<div class="dr-prod-placeholder"><i class="fa-solid fa-building-columns"></i></div>`,
 
     depositReceiptCard: (receiptSrc) => `
-        <button type="button" class="dr-card dr-receipt-container receipt-btn-transparent interactive-scale pulse-badge border-success-30 bg-success-subtle" data-action="open-img-viewer" data-src="${_esc(receiptSrc)}">
+        <button type="button" class="dr-card dr-system-box dr-receipt-container receipt-btn-transparent interactive-scale pulse-badge" data-action="open-img-viewer" data-src="${_esc(receiptSrc)}">
             <div class="dr-receipt-label text-success"><i class="fa-solid fa-file-invoice-dollar me-1"></i> إيصال التحويل المرفق (مهم جداً)</div>
             <img src="${_esc(receiptSrc)}" class="zoomable-img dr-receipt-img mt-10">
             <div class="dr-receipt-hint text-success mt-10"><i class="fa-solid fa-magnifying-glass-plus me-1"></i> اضغط لتكبير الإيصال والتأكد من البيانات</div>
@@ -275,7 +289,7 @@ if (localCurr && localCurr !== target) {
         <div class="dr-card dr-client interactive-scale" data-action="view-user" data-id="${_esc(data.userId)}">
             <div class="dr-client-left">
                 ${data.avatarHtml}
-                <div class="d-flex align-items-center">
+                <div class="flex-align-center">
                     ${drawerIdentityHtml}
                 </div>
             </div>
@@ -328,34 +342,30 @@ if (localCurr && localCurr !== target) {
     depositDrawerFooter: (status, depId, isDeduction = false, isAdminManualMethod = false) => {
         if (status === 'pending') {
             return `
-            <div class="modal-actions-row m-0 p-0 border-0">
-                <button class="btn btn-primary interactive-scale w-100" data-action="submit-deposit" data-type="approve" data-id="${_esc(depId)}">
-                    <i class="fa-solid fa-check me-1"></i> قبول واعتماد
-                </button>
-                <button class="btn btn-outline-danger interactive-scale w-100" data-action="submit-deposit" data-type="reject" data-id="${_esc(depId)}">
-                    <i class="fa-solid fa-xmark me-1"></i> رفض
-                </button>
-            </div>`;
+            <button class="btn btn-primary interactive-scale flex-1" data-action="submit-deposit" data-type="approve" data-id="${_esc(depId)}">
+                <i class="fa-solid fa-check me-1"></i> قبول واعتماد
+            </button>
+            <button class="btn btn-outline-danger interactive-scale flex-1" data-action="submit-deposit" data-type="reject" data-id="${_esc(depId)}">
+                <i class="fa-solid fa-xmark me-1"></i> رفض
+            </button>`;
         } 
         else if (isAdminManualMethod || status === 'deducted') {
             return `
             <div class="drawer-locked-msg">
-                <i class="fa-solid fa-user-shield icon-ms-1"></i> عملية إدارية مباشرة (يمكنك الإيداع أو الخصم من ملف العميل)
+                <i class="fa-solid fa-user-shield me-1"></i> عملية إدارية مباشرة (يمكنك الإيداع أو الخصم من ملف العميل)
             </div>`;
         }
         else if (status === 'approved') {
             return `
-            <div class="modal-actions-row m-0 p-0 border-0">
-                <button class="btn btn-outline-danger interactive-scale w-100" data-action="reevaluate-deposit" data-id="${_esc(depId)}">
-                    <i class="fa-solid fa-rotate-left me-1"></i> استرجاع وخصم الرصيد
-                </button>
-            </div>`;
+            <button class="btn btn-outline-danger interactive-scale flex-1" data-action="reevaluate-deposit" data-id="${_esc(depId)}">
+                <i class="fa-solid fa-rotate-left me-1"></i> استرجاع وخصم الرصيد
+            </button>`;
         } 
         else {
             const statusName = status === 'rejected' ? 'مرفوض' : 'مسترجع (ملغي)';
             return `
             <div class="drawer-locked-msg">
-                <i class="fa-solid fa-lock icon-ms-1"></i> هذا السجل مغلق (${statusName})
+                <i class="fa-solid fa-lock me-1"></i> هذا السجل مغلق (${statusName})
             </div>`;
         }
     },
@@ -369,7 +379,7 @@ if (localCurr && localCurr !== target) {
             
             <div class="form-group">
                 <label class="form-label">رمز العملة (Code)</label>
-                <input type="text" id="cur-code" class="form-input num-en font-numeric text-uppercase" dir="ltr" placeholder="مثال: EUR">
+                <input type="text" id="cur-code" class="form-input num-en font-numeric" dir="ltr" lang="en" placeholder="مثال: EUR">
             </div>
             <div class="form-group">
                 <label class="form-label">اسم العملة</label>
@@ -377,17 +387,17 @@ if (localCurr && localCurr !== target) {
             </div>
             <div class="form-group">
                 <label class="form-label">رمز العرض (Symbol)</label>
-                <input type="text" id="cur-symbol" class="form-input num-en font-numeric" dir="ltr" placeholder="مثال: €">
+                <input type="text" id="cur-symbol" class="form-input num-en font-numeric" dir="ltr" lang="en" placeholder="مثال: €">
             </div>
             
             <div class="d-flex gap-2 mb-15">
                 <div class="form-group mb-0 flex-1">
                     <label class="form-label text-success">سعر البيع (مقابل 1$)</label>
-                    <input type="text" inputmode="decimal" id="cur-price-rate" class="form-input num-en font-numeric" dir="ltr" placeholder="مثال: 0.92">
+                    <input type="text" inputmode="decimal" id="cur-price-rate" class="form-input num-en font-numeric" dir="ltr" lang="en" placeholder="مثال: 0.92">
                 </div>
                 <div class="form-group mb-0 flex-1">
                     <label class="form-label text-danger">سعر الإيداع (مقابل 1$)</label>
-                    <input type="text" inputmode="decimal" id="cur-dep-rate" class="form-input num-en font-numeric" dir="ltr" placeholder="مثال: 0.95">
+                    <input type="text" inputmode="decimal" id="cur-dep-rate" class="form-input num-en font-numeric" dir="ltr" lang="en" placeholder="مثال: 0.95">
                 </div>
             </div>
 
@@ -399,56 +409,97 @@ if (localCurr && localCurr !== target) {
     `,
 
     paymentEditModal: () => `
-        <div class="modal-content modal-lg">
+        <div class="modal-content modal-lg prod-modal-lg">
             <div class="modal-close-btn interactive-scale" data-action="close-modal"><i class="fa-solid fa-xmark"></i></div>
             <h2 class="main-title" id="pay-modal-title"><i class="fa-solid fa-building-columns me-1"></i> إعدادات بوابة الدفع</h2>
             
-            <div class="form-group">
-                <label class="form-label">اسم طريقة الدفع</label>
-                <input type="text" id="pay-name" class="form-input" placeholder="مثال: حوالة بنكية، زين كاش...">
+            <div class="sub-tabs-container fh-tabs-container mb-15 d-flex gap-2 p-8">
+                <button type="button" class="btn btn-compact btn-primary pay-tab-btn flex-1 active interactive-scale" id="btn-tab-pay-general" data-action="switch-pay-tab" data-tab="pay-tab-general">
+                    <i class="fa-solid fa-building-columns me-1"></i> بيانات البوابة والتحويل
+                </button>
+                <button type="button" class="btn btn-compact btn-ghost pay-tab-btn flex-1 interactive-scale" id="btn-tab-pay-finance" data-action="switch-pay-tab" data-tab="pay-tab-finance">
+                    <i class="fa-solid fa-coins me-1"></i> العملات والرسوم والحدود
+                </button>
             </div>
-            
-            <div class="form-group">
-                <label class="form-label">شعار الطريقة (أيقونة)</label>
-                <div class="upload-wrapper" id="pay-img-wrap">
-                    <div class="upload-box interactive-scale cursor-pointer" data-action="trigger-click" data-target="pay-img-input">
-                        <i class="fa-solid fa-cloud-arrow-up fa-2x text-muted mb-10"></i>
-                        <span class="text-muted">اضغط لرفع شعار البوابة</span>
+
+            <div id="pay-tab-general" class="pay-tab-pane">
+                <div class="card mb-15 p-15">
+                    <h3 class="ud-section-title mb-12"><i class="fa-solid fa-id-card text-primary me-1"></i> هوية وسيلة الدفع</h3>
+                    <div class="form-group mb-12">
+                        <label class="form-label">اسم طريقة الدفع (يظهر للمشتري)</label>
+                        <input type="text" id="pay-name" class="form-input" placeholder="مثال: حوالة بنكية، زين كاش، بايير...">
                     </div>
-                    <input type="file" id="pay-img-input" class="hide-element" accept="image/*" data-action="upload-img" data-preview="pay-img" data-wrap="pay-img-wrap">
-                    <img id="pay-img" src="" class="upload-preview hide-element">
-                    <button type="button" class="btn btn-danger btn-compact btn-remove-img interactive-scale" data-action="clear-img" data-preview="pay-img" data-wrap="pay-img-wrap" data-input="pay-img-input"><i class="fa-solid fa-trash"></i></button>
+                    
+                    <div class="form-group mb-0">
+                        <label class="form-label">شعار الطريقة (أيقونة البوابة)</label>
+                        <div class="upload-area interactive-scale" id="pay-img-wrap" data-action="trigger-click" data-target="pay-img-input">
+                            <i class="fa-solid fa-cloud-arrow-up mb-5 upload-icon-gold upload-icon-lg"></i>
+                            <span class="upload-hint-text">اضغط لرفع شعار البوابة</span>
+                            <input type="file" id="pay-img-input" class="hide-element" accept="image/*" data-action="upload-img" data-preview="pay-img" data-wrap="pay-img-wrap">
+                            <img id="pay-img" class="hide-element">
+                            <button type="button" class="btn-remove-img interactive-scale" data-action="clear-img" data-preview="pay-img" data-wrap="pay-img-wrap" data-input="pay-img-input"><i class="fa-solid fa-xmark"></i></button>
+                        </div>
+                    </div>
                 </div>
-            </div>            <div class="ud-divider-dashed my-15"></div>
-            
-            <h3 class="fs-14 fw-bold mb-10"><i class="fa-solid fa-list-check me-1"></i> تفاصيل وعناوين الدفع</h3>
-            <div class="d-flex gap-2 mb-10">
-                <input type="text" id="pay-det-input" class="form-input mb-0 flex-1" placeholder="أدخل رقم الحساب، أو عنوان المحفظة...">
-                <label class="d-flex align-items-center gap-2 m-0 bg-body p-2 rounded border cursor-pointer">
-                    <input type="checkbox" id="pay-det-copyable" checked>
-                    <span class="fs-12 text-nowrap">قابل للنسخ</span>
-                </label>
-                <button type="button" class="btn btn-primary interactive-scale" data-action="add-pay-detail"><i class="fa-solid fa-plus"></i></button>
-            </div>
-            <div id="pay-det-list" class="pay-det-grid mb-15"></div>
 
-            <div class="form-group">
-                <label class="form-label">تسمية حقل الإثبات (Placeholder للمشتري)</label>
-                <input type="text" id="pay-input-placeholder" class="form-input" placeholder="مثال: أدخل رقم الحوالة، أو اسم المرسل...">
-            </div>
-            
-            <div class="form-check-inline interactive-scale mb-15">
-                <input type="checkbox" id="pay-req-proof" checked>
-                <label for="pay-req-proof">إجبار المشتري على إرفاق صورة إيصال التحويل</label>
+                <div class="card mb-15 p-15">
+                    <h3 class="ud-section-title mb-12"><i class="fa-solid fa-list-check text-warning me-1"></i> تفاصيل التحويل (رقم الحسابات / الآيبان)</h3>
+                    
+                    <div class="pay-add-account-card mb-15">
+                     <div class="form-group mb-10">
+                            <label class="form-label fs-11">رقم الحساب، الآيبان (IBAN)، أو عنوان المحفظة</label>
+                            <input type="text" id="pay-det-input" class="form-input pay-account-input" data-onenter="add-pay-detail" placeholder="أدخل رقم الحساب أو الآيبان هنا...">
+                        </div>                  
+                        <div class="pay-add-account-footer">
+                            <div class="pay-copy-switch-wrap">
+                                <label class="switch interactive-scale">
+                                    <input type="checkbox" id="pay-det-copyable" checked>
+                                    <span class="slider"></span>
+                                </label>
+                                <span class="fs-12 fw-bold text-main"><i class="fa-solid fa-copy text-gold me-1"></i> ميزة النسخ السريع للمشتري</span>
+                            </div>
+
+                            <button type="button" class="btn btn-primary btn-add-account interactive-scale" data-action="add-pay-detail">
+                                <i class="fa-solid fa-plus me-1"></i> إضافة الحساب
+                            </button>
+                        </div>
+                    </div>
+
+                    <div id="pay-det-list" class="pay-det-grid"></div>
+                </div>
+
+                <div class="card mb-15 p-15">
+                    <h3 class="ud-section-title mb-12"><i class="fa-solid fa-receipt text-success me-1"></i> متطلبات إثبات التحويل من المشتري</h3>
+                    <div class="form-group mb-15">
+                        <label class="form-label">تسمية حقل الإثبات (Placeholder للمشتري)</label>
+                        <input type="text" id="pay-input-placeholder" class="form-input" placeholder="مثال: أدخل رقم الحوالة، أو اسم المرسل...">
+                    </div>
+                    
+                    <div class="setting-item-row mb-0">
+                        <div class="setting-text">
+                            <span class="fs-13 fw-bold text-main">إجبار المشتري على إرفاق صورة إيصال التحويل</span>
+                            <p class="fs-11 text-muted m-0">عند التفعيل، لن يتمكن العميل من إرسال طلب الشحن حتى يرفع صورة وصل التحويل البنكي.</p>
+                        </div>
+                        <div class="setting-control">
+                            <label class="switch interactive-scale">
+                                <input type="checkbox" id="pay-req-proof" checked>
+                                <span class="slider"></span>
+                            </label>
+                        </div>
+                    </div>
+                </div>
             </div>
 
-            <div class="ud-divider-dashed my-15"></div>
-
-            <h3 class="fs-14 fw-bold mb-10"><i class="fa-solid fa-coins me-1"></i> العملات المدعومة والرسوم</h3>
-            <div class="pay-pro-currs mb-15"></div>
-            
-            <div id="currency-settings-container" class="hide-element">
-                <div id="currency-settings-list" class="d-flex flex-column gap-3"></div>
+            <div id="pay-tab-finance" class="pay-tab-pane hide-element">
+                <div class="card mb-15 p-15">
+                    <h3 class="ud-section-title mb-12"><i class="fa-solid fa-coins text-gold me-1"></i> العملات المقبولة في هذه البوابة</h3>
+                    <p class="fs-11 text-muted mb-12">حدد العملات التي تدعم هذه البوابة الإيداع بها لتخصيص عمولاتها وحدودها أدناه:</p>
+                    <div class="pay-pro-currs"></div>
+                </div>
+                
+                <div id="currency-settings-container" class="hide-element">
+                    <div id="currency-settings-list" class="d-flex flex-column"></div>
+                </div>
             </div>
 
             <div class="modal-actions-row border-top-solid mt-15 pt-15">
@@ -459,14 +510,14 @@ if (localCurr && localCurr !== target) {
     `,
 
     depositDrawerModal: () => `
-        <div id="deposit-drawer" class="drawer-container">
+        <div id="deposit-drawer" class="order-drawer drawer-container" data-action="ignore-click">
             <div class="drawer-header">
-                <div class="drawer-close-btn interactive-scale" data-action="close-deposit-drawer">
-                    <i class="fa-solid fa-chevron-right"></i>
+                <div class="dh-title-wrap drawer-title-group">
+                    <h2 class="dh-title drawer-title">مراجعة الإيداع</h2>
+                    <div id="drawer-dep-id" class="dr-order-stamp num-en font-numeric" dir="ltr"></div>
                 </div>
-                <div class="drawer-title-group">
-                    <h2 class="drawer-title">مراجعة الإيداع</h2>
-                    <div id="drawer-dep-id" class="drawer-dep-id-badge num-en font-numeric" dir="ltr"></div>
+                <div class="drawer-close drawer-close-btn interactive-scale" data-action="close-deposit-drawer">
+                    <i class="fa-solid fa-xmark"></i>
                 </div>
             </div>
             
@@ -474,15 +525,15 @@ if (localCurr && localCurr !== target) {
                 <div class="drawer-body" id="drawer-dep-body-content">
                 </div>
                 
-                <div class="dr-card mt-15">
+                <div class="dr-card drawer-note-area mt-15">
                     <div class="form-group mb-0">
                         <label class="form-label fs-12"><i class="fa-solid fa-pen-to-square me-1"></i> ملاحظة للإدارة أو العميل (اختياري)</label>
                         <textarea id="dep-drawer-note" class="form-input dr-textarea" placeholder="اكتب ملاحظة لسبب الرفض أو القبول هنا..."></textarea>
                     </div>
                 </div>
-            </div>
-            
-            <div class="drawer-footer" id="drawer-dep-footer-actions">
+                
+                <div class="drawer-footer" id="drawer-dep-footer-actions">
+                </div>
             </div>
         </div>
     `

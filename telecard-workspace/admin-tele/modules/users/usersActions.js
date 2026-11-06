@@ -42,13 +42,9 @@ export const UsersActions = {
     'toggle-user-sort': () => UsersController.toggleUserSort?.(),
     'change-user-sort': (data) => UsersController.changeUserSort?.(data.val || data.element.value),
     'search-users': (data) => UsersController.searchUsers?.(data.val),
-    
-    // 🔌 مسارات المطورين والربط البرمجي (B2B API Integration)
-    'generate-api-key': (data) => UsersController.generateApiKey?.(data.id),
-    'save-webhook': (data) => UsersController.saveWebhook?.(data.id),
-    
-    // --- 2. إدارة المستويات (Tiers) ---
-    'open-tier-edit': (data) => AdminUI?.UsersUI?.openTierModal?.(data.id),
+
+// --- 2. إدارة المستويات (Tiers) ---
+'open-tier-edit': (data) => AdminUI?.UsersUI?.openTierModal?.(data.id || null),
     'save-tier': () => UsersController.saveTier?.(),
     'delete-tier': (data) => UsersController.deleteTier?.(data.id),
     'select-tier-badge': (data) => AdminUI?.UsersUI?.selectTierBadge?.(data.element, data.val),

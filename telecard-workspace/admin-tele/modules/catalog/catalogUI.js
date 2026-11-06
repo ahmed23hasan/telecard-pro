@@ -1,13 +1,11 @@
 // ============================================================================
-// 📦 وحدة المنتجات والأقسام (modules/catalog/catalogUI.js) - Cloud-Native V20.2 💎
-// 🚀 التحديثات المعمارية (V20.2 - Visibility Control, Pricing Sync & Live Preview):
-// 1. Visibility UI Sync 👁️: ربط حالة pr-available و pr-active مع حالة المنتج عند الفتح.
-// 2. Single-Supplier Enforcement 🔒: قفل ربط المنتج وباقاته بمورد واحد فقط مع تنبيه فوري.
-// 3. Sub-Package Editor & Vault Selector 📦: دعم ربط الخزنة أو كود المورد والسعر الثابت لكل باقة فرعية.
-// 4. Vault Accountant UI 💰: دعم عرض وتعبئة تكلفة الكود الواحد وحساب الأصول المجمدة.
-// 5. Sub-Cent Pricing Preview ⚡: تمرير نوع المنتج (type) لمحرك التسعير لضمان المعاينة الدقيقة.
-// 6. Tree Check Sync 🌳: إصلاح استهداف .tree-group لتحديد الأقسام المتداخلة.
-// 7. Zero Double-Escaping 🛡️: منع التشفير المزدوج عند تعديل تسمية حقول المنتج.
+// 📦 وحدة المنتجات والأقسام (modules/catalog/catalogUI.js) - Cloud-Native V20.6 💎
+// 🎯 الوظيفة: التفاعلات الديناميكية للمنتجات، الباقات، وصناديق الخزنة.
+// 🌟 التحديثات المعمارية:
+// 1. Single Execution Pipeline ⚡: تفكيك تكرار استدعاء 'req-update-price-preview' وإيقافه أثناء التهيئة الأولية (!isInitialSetup) في toggleSupplierLink.
+// 2. Clean Modal Lifecycle 🪟: توحيد دوال فتح النوافذ (openCategoryModal, openProductModal, openCountryModal, openVaultModal) لتمر عبر نظام الطبقات الموحد (UIService/EventBus) دون تكرار تفعيل كلاسات الـ DOM.
+// 3. Loss Prevention Feedback 🛡️: دعم تمييز بطاقات الأسعار المخالفة للتكلفة (.border-danger).
+// 4. Clean Syntax & Code Formatting 🧹: تصحيح المسافات البادئة والدمج العشوائي في جلب إحصائيات الخزنة المالية واستبدال الوحدات غير المعرفة.
 // ============================================================================
 
 import { AdminData } from '../../adminData.js'; 
@@ -45,13 +43,11 @@ export const CatalogUI = {
     this.setupCategoryModal(cat, isSubCat);
     
     void modal.offsetWidth;
-    requestAnimationFrame(() => modal.classList.add('active'));
-    
     EventBus.emit('req-open-modal', 'cat');
   },
   
   // ---------------------------------------------------------
-  // 📦 2. نافذة المنتجات (Products)
+  // 📦 2. نافذة المنتجات (Products) - Two-Tabs Clean Architecture
   // ---------------------------------------------------------
   openProductModal: function(id = null) {
     const strId = id ? String(id) : null;
@@ -72,8 +68,6 @@ export const CatalogUI = {
     this.setupProductModal(prod, vaultData);
     
     void modal.offsetWidth;
-    requestAnimationFrame(() => modal.classList.add('active'));
-    
     EventBus.emit('req-open-modal', 'prod');
   },
   
@@ -98,8 +92,6 @@ export const CatalogUI = {
     this.setupCountryModal(country);
     
     void modal.offsetWidth;
-    requestAnimationFrame(() => modal.classList.add('active'));
-    
     EventBus.emit('req-open-modal', 'country');
   },
   
@@ -120,19 +112,43 @@ export const CatalogUI = {
         document.body.appendChild(modal);
     }
 
-    modal.innerHTML = CatalogTemplates.vaultEditModal();
+    modal.innerHTML = CatalogTemplates.vaultEditModal(pool);
     this.setupVaultModal(pool);
-    
+
     void modal.offsetWidth;
-    requestAnimationFrame(() => modal.classList.add('active'));
-    
     EventBus.emit('req-open-modal', 'vault');
   },  
   
   // ==========================================
   // ⚙️ إعدادات النوافذ (Setup Functions)
   // ==========================================
-  
+  switchProdTab: function(tabId) {
+    if (!tabId) return;
+    const modal = document.getElementById('m-prod');
+    if (!modal) return;
+    
+    modal.querySelectorAll('.prod-tab-btn, [data-action="switch-prod-tab"]').forEach(btn => {
+      const isTarget = (btn.dataset.tab === tabId);
+      if (isTarget) {
+        btn.classList.add('active', 'btn-primary');
+        btn.classList.remove('btn-ghost');
+      } else {
+        btn.classList.remove('active', 'btn-primary');
+        btn.classList.add('btn-ghost');
+      }
+    });
+    
+    modal.querySelectorAll('.prod-tab-pane').forEach(pane => {
+      const isTarget = (pane.id === tabId);
+      pane.classList.toggle('active', isTarget);
+      pane.classList.toggle('hide-element', !isTarget);
+    });
+    
+    if (tabId === 'prod-tab-data') {
+      EventBus.emit('req-update-price-preview');
+    }
+  },  
+
   setupCategoryModal: function(cat, isSubCat) {
     const titleEl = document.getElementById('cat-modal-title');
     if (titleEl) titleEl.innerHTML = cat ? '<i class="fa-solid fa-folder-pen me-1"></i> تعديل القسم' : (isSubCat ? '<i class="fa-solid fa-folder-plus me-1"></i> إضافة قسم فرعي' : '<i class="fa-solid fa-folder-plus me-1"></i> إضافة قسم رئيسي');
@@ -185,14 +201,15 @@ export const CatalogUI = {
         fixedInput.addEventListener('input', () => EventBus.emit('req-update-price-preview'));
     }
     
-    // 🚀 [الإصلاح المعماري]: تعبئة خيارات التوفر والإظهار
     safeSetVal('pr-min', p ? (p.minQty || 1) : 1);
     safeSetVal('pr-max', p ? (p.maxQty || 1000) : 1000);
     safeSetCheck('pr-allow-qty', p ? (p.allowQty || false) : false);
     safeSetVal('pr-simple-max', p ? (p.simpleMax || 10) : 10);
+    
     safeSetCheck('pr-hide-price', p ? (p.hideGridPrice === true) : false);
     safeSetCheck('pr-available', p ? (p.isManuallyPaused !== true && p.isAvailable !== false) : true);
     safeSetCheck('pr-active', p ? (p.isActive !== false) : true);
+    
     safeSetVal('h-lbl1', p ? (p.input1Label || '') : '');
     safeSetVal('h-lbl2', p ? (p.input2Label || '') : '');
 
@@ -248,23 +265,31 @@ export const CatalogUI = {
   toggleSupplierLink: async function(selectEl, isInitialSetup = false) {
     if (!selectEl) return;
     const newSuppId = String(selectEl.value || '').trim();
-
+    
     if (!isInitialSetup && this._previousSupplierId && newSuppId !== this._previousSupplierId) {
-      const hasLinkedPkgs = Array.isArray(AdminRender?.CatalogRender?.state?.tempPackages) &&
-        AdminRender.CatalogRender.state.tempPackages.some(pkg => pkg && (pkg.externalId || pkg.supplierId));
+      const currentPkgs = Array.isArray(AdminData.tempPackages) ? AdminData.tempPackages : [];
+      const hasLinkedPkgs = currentPkgs.some(pkg => pkg && (pkg.externalId || pkg.supplierId));
       if (hasLinkedPkgs) {
-        const msg = newSuppId
-          ? `⚠️ تنبيه وحدة الموردين:\nالباقات الفرعية الحالية مربوطة بالمورد السابق.\nفي نظام الحماية، يجب أن يتبع المنتج الأب وجميع باقاته الفرعية نفس المورد فقط.\n\nهل تريد توحيد جميع الباقات تحت المورد الجديد؟`
-          : `⚠️ تنبيه فك ارتباط المورد:\nإلغاء ربط المورد عن المنتج الأب سيقوم بتحويل المنتج وجميع باقاته إلى منتجات محلية.\n\nهل أنت متأكد؟`;
+        const msg = newSuppId ?
+          `⚠️ تنبيه وحدة الموردين:\nالباقات الفرعية الحالية مربوطة بالمورد السابق.\nفي نظام الحماية، يجب أن يتبع المنتج الأب وجميع باقاته الفرعية نفس المورد فقط.\n\nهل تريد توحيد جميع الباقات تحت المورد الجديد؟` :
+          `⚠️ تنبيه فك ارتباط المورد:\nإلغاء ربط المورد عن المنتج الأب سيقوم بتحويل المنتج وجميع باقاته إلى منتجات محلية.\n\nهل أنت متأكد؟`;
         const confirmed = await UIService.showConfirm(msg, 'حماية وحدة المورد للمنتج وباقاته');
         if (!confirmed) {
           selectEl.value = this._previousSupplierId;
           return;
         }
+        currentPkgs.forEach(pkg => {
+          if (!pkg) return;
+          pkg.supplierId = newSuppId || null;
+          if (!newSuppId) pkg.externalId = null;
+          if (newSuppId) pkg.vaultPoolId = null;
+        });
+        EventBus.emit('req-update-state', { tempPackages: currentPkgs });
+        EventBus.emit('req-render-pkg-list');
       }
     }
     this._previousSupplierId = newSuppId;
-
+    
     const costInput = document.getElementById('pr-cost');
     const extIdInput = document.getElementById('pr-supplier-prod-id');
     const extWrap = document.getElementById('pr-supplier-ext-wrap') || extIdInput?.parentElement;
@@ -298,7 +323,6 @@ export const CatalogUI = {
     } else {
       if (costInput) {
         costInput.readOnly = false;
-        costInput.classList.remove('disabled-input');
         costInput.title = '';
       }
       if (extWrap) extWrap.classList.add('hide-element');
@@ -317,7 +341,9 @@ export const CatalogUI = {
       }
     }
     
-    EventBus.emit('req-update-price-preview');
+    if (!isInitialSetup) {
+      EventBus.emit('req-update-price-preview');
+    }
   },
 
   populatePackageForEdit: function(pkg, index) {
@@ -347,7 +373,7 @@ export const CatalogUI = {
     const safeSetCheck = (elId, checked) => { const el = document.getElementById(elId); if (el) el.checked = Boolean(checked); };
     
     const titleEl = document.getElementById('country-modal-title');
-    if (titleEl) titleEl.innerHTML = country ? '<i class="fa-solid fa-globe"></i> تعديل دولة' : '<i class="fa-solid fa-plus"></i> إضافة دولة جديدة';
+    if (titleEl) titleEl.innerHTML = country ? '<i class="fa-solid fa-globe me-1"></i> تعديل دولة' : '<i class="fa-solid fa-plus me-1"></i> إضافة دولة جديدة';
     
     safeSetVal('country-edit-id', country ? country.id : '');
     safeSetVal('country-name', country ? country.name : '');
@@ -374,7 +400,7 @@ export const CatalogUI = {
     safeSetVal('v-codes', '');
     
     const titleEl = document.getElementById('vault-modal-title');
-    if (titleEl) titleEl.innerHTML = isEdit ? '<i class="fa-solid fa-box-open"></i> إدارة وإضافة أكواد للصندوق' : '<i class="fa-solid fa-plus"></i> إنشاء صندوق جديد';
+    if (titleEl) titleEl.innerHTML = isEdit ? '<i class="fa-solid fa-box-open me-1"></i> إدارة وإضافة أكواد للصندوق' : '<i class="fa-solid fa-plus me-1"></i> إنشاء صندوق جديد';
     
     const statsArea = document.getElementById('v-stats-area');
     if (statsArea) {
@@ -402,32 +428,23 @@ export const CatalogUI = {
           });
         }
         
-        let financialBox = document.getElementById('v-financial-stats');
-        if (!financialBox) {
-          financialBox = document.createElement('div');
-          financialBox.id = 'v-financial-stats';
-          financialBox.className = 'mt-10 p-10 vault-financial-box';
-          statsArea.appendChild(financialBox);
-        }
-        
-        financialBox.innerHTML = `<i class="fa-solid fa-circle-notch fa-spin text-success"></i> <span class="text-muted">جاري حساب أرباح هذا الصندوق من السيرفر...</span>`;
-        statsArea.classList.remove('hide-element');
-        
         import('./catalogController.js').then(({ CatalogController }) => {
           CatalogController.fetchVaultFinancials(pool.id).then(financials => {
             const currentModalId = document.getElementById('v-pool-id')?.value;
             if (currentModalId === pool.id) {
-              const profitHtml = RenderHelpers.formatMoney(financials.profit, 'USD', 2);
-              const revenueHtml = RenderHelpers.formatMoney(financials.revenue, 'USD', 2);
-              financialBox.innerHTML = `
-                  <div class="flex-between align-items-center mb-5">
-                      <span class="fw-bold text-success"><i class="fa-solid fa-sack-dollar"></i> صافي الأرباح المحققة:</span>
-                      <span class="num-en fw-bold text-success" dir="ltr">${profitHtml}</span>
-                  </div>
-                  <div class="flex-between align-items-center">
-                      <span class="text-muted"><i class="fa-solid fa-chart-line"></i> إجمالي المبيعات:</span>
-                      <span class="num-en text-muted" dir="ltr">${revenueHtml}</span>
-                  </div>`;
+              const profitValEl = document.getElementById('v-stat-profit-val');
+              const revenueValEl = document.getElementById('v-stat-revenue-val');
+              
+              if (profitValEl) {
+                profitValEl.className = 'num-en fw-bold text-success font-numeric';
+                profitValEl.setAttribute('dir', 'ltr');
+                profitValEl.innerHTML = RenderHelpers.formatMoney(financials.profit, 'USD', 2);
+              }
+              if (revenueValEl) {
+                revenueValEl.className = 'num-en text-muted font-numeric';
+                revenueValEl.setAttribute('dir', 'ltr');
+                revenueValEl.innerHTML = RenderHelpers.formatMoney(financials.revenue, 'USD', 2);
+              }
             }
           });
         });
@@ -489,6 +506,7 @@ export const CatalogUI = {
     }
     return false;
   },
+  
   toggleMockEdit: function(num) {
     const txtEl = document.getElementById(`mock-txt-${num}`);
     const iconEl = document.getElementById(`mock-icon-${num}`);
@@ -504,6 +522,10 @@ export const CatalogUI = {
         if (inp) {
           inp.focus();
           inp.onclick = (e) => e.stopPropagation();
+          inp.oninput = () => {
+            const hiddenLbl = document.getElementById(`h-lbl${num}`);
+            if (hiddenLbl) hiddenLbl.value = inp.value.trim();
+          };
           inp.onkeypress = (e) => {
             if (e.key === 'Enter') {
               e.preventDefault();
@@ -516,10 +538,12 @@ export const CatalogUI = {
     } else {
       const inputEl = document.getElementById(`mock-input-${num}`);
       const newVal = inputEl ? inputEl.value.trim() : '';
-      txtEl.innerText = newVal || 'حقل إدخال';
+      const type = document.getElementById('pr-type')?.value || 'simple';
+      const fallbackTxt = num == 2 ? 'كلمة المرور' : (['single', 'counter', 'select'].includes(type) ? 'أدخل رقم اللاعب (ID)' : (type === 'double' ? 'اسم المستخدم / الإيميل' : 'حقل إدخال'));
+      txtEl.innerText = newVal || fallbackTxt;
       iconEl.className = 'fa-solid fa-pen';
       const hiddenLbl = document.getElementById(`h-lbl${num}`);
-      if (hiddenLbl) hiddenLbl.value = newVal;
+      if (hiddenLbl) hiddenLbl.value = newVal || fallbackTxt;
     }
   },
 
@@ -536,13 +560,15 @@ export const CatalogUI = {
 
   selectIcon: function(el) {
     if (!el) return;
-    document.querySelectorAll('.is-opt').forEach(i => i.classList.remove('active'));
+    const container = el.closest('.icon-selector') || document;
+    container.querySelectorAll('.is-opt').forEach(i => i.classList.remove('active'));
     el.classList.add('active');
   },
   
   selectAnimation: function(el) {
     if (!el) return;
-    document.querySelectorAll('.anim-opt').forEach(a => a.classList.remove('active'));
+    const container = el.closest('.animation-selector') || document;
+    container.querySelectorAll('.anim-opt').forEach(a => a.classList.remove('active'));
     el.classList.add('active');
   },
 
@@ -588,17 +614,22 @@ export const CatalogUI = {
       if (!safeEngine) return;
       
       const isFixed = document.getElementById('pr-fixed-price')?.checked || false;
-      const fixedVal = parseFloat(Utils.getVal('pr-fixed-val', cost)) || cost;
+      const rawFixedInput = parseFloat(Utils.getVal('pr-fixed-val', 0)) || 0;
+      const fixedVal = isFixed ? rawFixedInput : cost;
       const supplierId = document.getElementById('pr-supplier')?.value;
 
-      let html = '<div class="fs-12 fw-bold text-primary mb-10"><i class="fa-solid fa-eye"></i> المعاينة الحية لأسعار المستويات:</div>';
+      let html = '<div class="fs-12 fw-bold text-primary mb-10"><i class="fa-solid fa-eye me-1"></i> المعاينة الحية لأسعار المستويات:</div>';
 
       if (type !== 'select') {
+          if (isFixed && rawFixedInput <= 0) {
+              previewContainer.innerHTML = '<div class="preview-mini-empty text-warning fs-11 mt-10 text-center"><i class="fa-solid fa-tag me-1"></i> أدخل قيمة السعر الثابت ($) بالأعلى لرؤية المعاينة والربح الصافي</div>';
+              return;
+          }
           if (cost <= 0 && !isFixed) {
               if (supplierId) {
                   previewContainer.innerHTML = '<div class="preview-mini-empty api-preview-box text-info fs-11 mt-10 text-center p-15"><i class="fa-solid fa-robot fa-2x mb-10 text-info"></i><br><b>تسعير آلي (API)</b><br>سيتم جلب تكلفة المنتج آلياً من المورد وحساب أسعار المستويات بناءً عليها فور حفظ المنتج أو مزامنة المورد.</div>';
               } else {
-                  previewContainer.innerHTML = '<div class="preview-mini-empty text-muted fs-11 mt-10 text-center"><i class="fa-solid fa-calculator"></i> أدخل تكلفة المنتج بالأعلى لرؤية أسعار البيع للعملاء</div>';
+                  previewContainer.innerHTML = '<div class="preview-mini-empty text-muted fs-11 mt-10 text-center"><i class="fa-solid fa-calculator me-1"></i> أدخل تكلفة المنتج بالأعلى لرؤية أسعار البيع للعملاء</div>';
               }
               return; 
           }
@@ -614,8 +645,8 @@ export const CatalogUI = {
                           <div class="fs-11 fw-bold text-main mb-10">
                               <i class="fa-solid ${Utils.escapeHTML(tier.icon || 'fa-user')} text-gold"></i> ${Utils.escapeHTML(tier.name)}
                           </div>
-                          <div class="num-en ${isViolated ? 'text-danger' : 'text-success'} fw-bold" dir="ltr">${pricing.finalPrice} $</div>
-                          <div class="num-en text-muted fs-9" dir="ltr">${isViolated ? '<span class="text-danger">أقل من التكلفة!</span>' : `ربحك: <span class="text-success">+${pricing.netProfitUsd}</span> $`}</div>
+                          <div class="num-en ${isViolated ? 'text-danger' : 'text-success'} fw-bold font-numeric" dir="ltr" lang="en">${pricing.finalPrice} $</div>
+                          <div class="num-en text-muted fs-10 font-numeric" dir="ltr" lang="en">${isViolated ? '<span class="text-danger">أقل من التكلفة!</span>' : `ربحك: <span class="text-success">+${pricing.netProfitUsd}</span> $`}</div>
                       </div>`;
               } catch (e) {}
           });
@@ -623,7 +654,7 @@ export const CatalogUI = {
           
       } else {
           if (pkgs.length === 0) { 
-              previewContainer.innerHTML = '<div class="preview-mini-empty text-muted fs-11 mt-10 text-center"><i class="fa-solid fa-layer-group"></i> أضف باقات بالأسفل لرؤية تسعير كل باقة على حدة</div>'; 
+              previewContainer.innerHTML = '<div class="preview-mini-empty text-muted fs-11 mt-10 text-center"><i class="fa-solid fa-layer-group me-1"></i> أضف باقات بالأسفل لرؤية تسعير كل باقة على حدة</div>'; 
               return; 
           }
           
@@ -636,8 +667,8 @@ export const CatalogUI = {
               let pkgHtml = `
                   <div class="preview-pkg-card">
                       <div class="preview-pkg-header">
-                          <span class="fw-bold fs-12"><i class="fa-solid fa-box text-info"></i> ${Utils.escapeHTML(pkg.name)}</span>
-                          <span class="num-en text-danger fs-11" dir="ltr">التكلفة: ${pkgCost}$</span>
+                          <span class="fw-bold fs-12"><i class="fa-solid fa-box text-info me-1"></i> ${Utils.escapeHTML(pkg.name)}</span>
+                          <span class="num-en text-danger fs-11 font-numeric" dir="ltr" lang="en">التكلفة: ${pkgCost}$</span>
                       </div>
                       <div class="preview-mini-grid">`;
               
@@ -651,8 +682,8 @@ export const CatalogUI = {
                                   <div class="fs-10 text-main mb-10">
                                       <i class="fa-solid ${Utils.escapeHTML(tier.icon || 'fa-user')} text-gold"></i> ${Utils.escapeHTML(tier.name)}
                                   </div>
-                                  <div class="num-en ${isViolated ? 'text-danger' : 'text-success'} fw-bold fs-12" dir="ltr">${pricing.finalPrice}$</div>
-                                  <div class="num-en text-muted fs-9" dir="ltr">${isViolated ? '<span class="text-danger">خاسر!</span>' : `ربحك: <span class="text-success">+${pricing.netProfitUsd}</span> $`}</div>
+                                  <div class="num-en ${isViolated ? 'text-danger' : 'text-success'} fw-bold fs-12 font-numeric" dir="ltr" lang="en">${pricing.finalPrice}$</div>
+                                  <div class="num-en text-muted fs-10 font-numeric" dir="ltr" lang="en">${isViolated ? '<span class="text-danger">خاسر!</span>' : `ربحك: <span class="text-success">+${pricing.netProfitUsd}</span> $`}</div>
                               </div>`;
                   } catch (e) {}
               });
@@ -743,8 +774,8 @@ export const CatalogUI = {
           const overlay = document.getElementById('defective-codes-overlay');
           if (overlay) {
             overlay.classList.add('dynamic-auto-destroy');
-            overlay.style.display = 'flex';
-            setTimeout(() => { overlay.classList.add('active'); }, 10);
+            void overlay.offsetWidth; 
+            requestAnimationFrame(() => overlay.classList.add('active'));
           }
       }
   },
@@ -762,41 +793,41 @@ export const CatalogUI = {
   _activeSortables: {},
   
   initSortableEngine: function(container, type) {
-  if (!window.Sortable) {
-    console.warn("🚨 مكتبة SortableJS غير موجودة! يرجى إضافتها في admin.html");
-    return;
-  }
-  
-  const containerId = container.id || `sortable_${type || 'default'}`;
-  if (this._activeSortables[containerId]) {
-    this._activeSortables[containerId].destroy();
-    delete this._activeSortables[containerId];
-  }
-  
-  const isBannerGrid = (type === 'banner' || containerId === 'banner-grid');
-  
-  const instance = new window.Sortable(container, {
-    animation: 200,
-    disabled: isBannerGrid ? false : !this.dragEditMode,
-    ...(isBannerGrid ? { handle: '.banner-drag-handle' } : {}),
-    ghostClass: 'sortable-ghost',
-    delay: window.innerWidth < 992 ? 150 : 0,
-    delayOnTouchOnly: true,
-    
-    onEnd: (evt) => {
-      const items = Array.from(container.children);
-      const orderArray = items.map((item, index) => ({
-        id: item.getAttribute('data-id'),
-        type: item.getAttribute('data-type') || type,
-        order: index
-      }));
-      
-      EventBus.emit('action-triggered', { action: 'save-sort-order', orderArray });
-      if (window.ClientSystem && window.ClientSystem.sfx) window.ClientSystem.sfx('success');
+    if (!window.Sortable) {
+      console.warn("🚨 مكتبة SortableJS غير موجودة! يرجى إضافتها في admin.html");
+      return;
     }
-  });
-  
-  container.sortableInstance = instance;
-this._activeSortables[containerId] = instance;
-}
+    
+    const containerId = container.id || `sortable_${type || 'default'}`;
+    if (this._activeSortables[containerId]) {
+      this._activeSortables[containerId].destroy();
+      delete this._activeSortables[containerId];
+    }
+    
+    const isBannerGrid = (type === 'banner' || containerId === 'banner-grid');
+    
+    const instance = new window.Sortable(container, {
+      animation: 200,
+      disabled: isBannerGrid ? false : !this.dragEditMode,
+      ...(isBannerGrid ? { handle: '.banner-drag-handle' } : {}),
+      ghostClass: 'sortable-ghost',
+      delay: window.innerWidth < 992 ? 150 : 0,
+      delayOnTouchOnly: true,
+      
+      onEnd: (evt) => {
+        const items = Array.from(container.children);
+        const orderArray = items.map((item, index) => ({
+          id: item.getAttribute('data-id'),
+          type: item.getAttribute('data-type') || type,
+          order: index
+        }));
+        
+        EventBus.emit('action-triggered', { action: 'save-sort-order', orderArray });
+        if (window.ClientSystem && window.ClientSystem.sfx) window.ClientSystem.sfx('success');
+      }
+    });
+    
+    container.sortableInstance = instance;
+    this._activeSortables[containerId] = instance;
+  }
 };

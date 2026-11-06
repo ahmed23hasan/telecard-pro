@@ -1,11 +1,11 @@
 // ============================================================================
-// 🎨 خدمة الواجهات الأساسية (core/uiService.js) - النواة الصلبة V15.4 💎
+// 🎨 خدمة الواجهات الأساسية (core/uiService.js) - النواة الصلبة V15.5 💎
 // 🎯 الوظيفة: أدوات الواجهة المشتركة (الإشعارات، التحميل، النوافذ) بدون منطق عمل
-// 🌟 التحديثات المعمارية (V15.4 - Autofill & Heuristics Shield):
-// 1. Event Leak Fix 🧹: حل مشكلة تضاعف الأحداث في نافذة الـ Prompt.
-// 2. CSP Compliance 🛡️: إزالة الـ Inline JS من نافذة التقارير.
-// 3. Scroll Lock Safety 🔓: فك تجميد الشاشة عند إغلاق النوافذ.
-// 4. Autofill Heuristics Shield 🛡️: منع اقتراح البطاقات البنكية وكلمات المرور عبر عزل خصائص name وضبط autocomplete القياسي.
+// 🌟 التحديثات المعمارية:
+// 1. Zero Inline Styles 🧹: إزالة كافة الستايلات المدمجة وتعيينات zIndex و display المباشرة والاعتماد كلياً على admin.css.
+// 2. Dead Code & Duplicate Fix 🛠️: إزالة دالة closeModal المكررة وتوحيد منطق إغلاق النوافذ والـ Drawers وتنظيف العناصر الديناميكية.
+// 3. Robust Error Prevention 🛡️: تصحيح أخطاء الـ DOM واستدعاءات getElementById.
+// 4. Clean Loader State ⏱️: تبديل حالات شاشة التحميل عبر الفئات النشطة (.active / .hide-element) بدون كسر تخطيط الـ CSS.
 // ============================================================================
 
 import { Utils, EventBus } from '../adminUtils.js';
@@ -14,7 +14,8 @@ import { AdminTemplates } from '../adminTemplates.js';
 export const UIService = {
     _esc: Utils.escapeHTML,
     tempImg: null,
-    tempFile: null, 
+    tempFile: null,
+    _loaderTimer: null,
 
     // 🚀 تحويل الصورة المضغوطة إلى ملف حقيقي لرفعه للسيرفر
     base64ToBlob: function(base64Data, contentType = 'image/jpeg') {
@@ -60,7 +61,6 @@ export const UIService = {
             if (icon) icon.className = 'fa-solid fa-moon'; 
         }
 
-        // تفعيل درع الحقول تلقائياً عند بدء التشغيل وعند التركيز على أي حقل
         if (!this._autofillShieldBound) {
             this._autofillShieldBound = true;
             this.shieldInputsFromBrowserAutofill(document);
@@ -98,8 +98,8 @@ export const UIService = {
         if (document.getElementById('admin-push-prompt')) return;
 
         const html = `
-            <div id="admin-push-prompt" class="sys-overlay active" style="z-index: 99999; display: flex; align-items: center; justify-content: center; background: rgba(0,0,0,0.6);">
-                <div class="modal-content modal-md" style="animation: slideIn 0.3s ease; text-align: center;">
+            <div id="admin-push-prompt" class="sys-overlay active">
+                <div class="modal-content modal-md text-center">
                     <div class="mb-15">
                         <i class="fa-solid fa-satellite-dish text-primary fa-3x mb-10 fa-beat-fade"></i>
                         <h2 class="main-title text-primary">رادار غرفة العمليات</h2>
@@ -107,7 +107,7 @@ export const UIService = {
                     <div class="alert-info mb-20 text-center">
                         هل ترغب بربط هذا الجهاز بغرفة العمليات لتلقي إنذارات فورية (Push Notifications) عند وصول طلبات، إيداعات، أو شكاوى جديدة؟
                     </div>
-                    <div class="d-flex gap-10">
+                    <div class="modal-actions-row">
                         <button class="btn btn-primary flex-1 interactive-scale" data-action="enable-admin-notifs">
                             <i class="fa-solid fa-check"></i> تفعيل الرادار
                         </button>
@@ -123,7 +123,7 @@ export const UIService = {
 
     showToast: function(message, type='success', duration=3000) {
         const container = document.getElementById('toast-container');
-        if(!container) return;
+        if (!container) return;
         container.innerHTML = ''; 
         const types = {
             success: { icon: 'fa-circle-check', cls: 'toast-success' },
@@ -150,7 +150,7 @@ export const UIService = {
             const msgEl = document.getElementById('confirm-message');
             const titleEl = document.getElementById('confirm-title');
             const noteEl = document.getElementById('confirm-note');
-            if(!overlay || !msgEl) { resolve(confirm(message)); return; }
+            if (!overlay || !msgEl) { resolve(confirm(message)); return; }
 
             msgEl.innerHTML = this._esc(message).replace(/\n/g, '<br>');
             if(titleEl) titleEl.textContent = title || 'تأكيد العملية';
@@ -167,7 +167,10 @@ export const UIService = {
             okBtn.parentNode.replaceChild(newOkBtn, okBtn);
             cancelBtn.parentNode.replaceChild(newCancelBtn, cancelBtn);
 
+            let isClosing = false;
             const closeDialog = (isOk) => {
+                if (isClosing) return;
+                isClosing = true;
                 if(noteEl) noteEl.blur(); 
                 overlay.classList.add('closing');
                 setTimeout(() => {
@@ -212,7 +215,10 @@ export const UIService = {
             okBtn.parentNode.replaceChild(newOkBtn, okBtn);
             cancelBtn.parentNode.replaceChild(newCancelBtn, cancelBtn);
             
+            let isClosing = false;
             const closeDialog = (isOk) => {
+                if (isClosing) return;
+                isClosing = true;
                 const val = inputEl.value.trim();
                 inputEl.blur();
                 inputEl.value = ''; 
@@ -238,7 +244,7 @@ export const UIService = {
             overlay.classList.add('active');
             if (window.innerWidth > 768) setTimeout(() => { inputEl.focus(); }, 350);
         });
-    },    
+    },
 
     showReportModal: function(title, htmlContent) {
         const existingOverlay = document.getElementById('report-modal-overlay');
@@ -247,21 +253,18 @@ export const UIService = {
         const overlay = document.createElement('div');
         overlay.id = 'report-modal-overlay';
         overlay.className = 'sys-overlay dynamic-auto-destroy active';
-        overlay.style.cssText = 'z-index: 99999; display: flex; align-items: center; justify-content: center; background: rgba(0,0,0,0.6);';
         
         overlay.innerHTML = `
-                    <div class="modal-content modal-md" style="animation: slideIn 0.3s ease; width: 90%; max-width: 500px;">
-                        <div class="flex-between align-items-center mb-15">
-                            <h2 class="main-title m-0"><i class="fa-solid fa-file-invoice"></i> ${this._esc(title)}</h2>
-                            <div class="modal-close-btn clickable interactive-scale" data-action="close-modal" data-id="report-modal-overlay"><i class="fa-solid fa-xmark"></i></div>
-                        </div>
-                        <div class="custom-scrollbar" style="max-height: 400px; overflow-y: auto; text-align: right; padding-left: 5px;">
-                            ${htmlContent}
-                        </div>
-                        <div class="modal-actions-row border-top-solid mt-15 pt-15">
-                            <button class="btn btn-outline-danger interactive-scale w-100" data-action="close-modal" data-id="report-modal-overlay">إغلاق التقرير</button>
-                        </div>
-                    </div>`;
+            <div class="modal-content modal-md">
+                <div class="modal-close-btn interactive-scale" data-action="close-modal" data-id="report-modal-overlay"><i class="fa-solid fa-xmark"></i></div>
+                <h2 class="main-title"><i class="fa-solid fa-file-invoice"></i> ${this._esc(title)}</h2>
+                <div class="fh-scroll-list text-start">
+                    ${htmlContent}
+                </div>
+                <div class="modal-actions-row border-top-solid mt-15 pt-15">
+                    <button class="btn btn-outline-danger interactive-scale w-100" data-action="close-modal" data-id="report-modal-overlay">إغلاق التقرير</button>
+                </div>
+            </div>`;
         document.body.appendChild(overlay);
         document.body.style.overflow = 'hidden';
     },
@@ -276,15 +279,26 @@ export const UIService = {
         };
         const fallbackCopy = (txt) => {
             const textArea = document.createElement("textarea");
-            textArea.value = txt; textArea.style.position = "fixed"; textArea.style.left = "-9999px";
-            document.body.appendChild(textArea); textArea.focus(); textArea.select();
-            try { document.execCommand('copy'); this.showToast('تم النسخ!', 'success', 1500); animateElement(element); } 
-            catch (err) { this.showToast('فشل النسخ', 'error'); }
+            textArea.value = txt; 
+            textArea.style.position = "fixed"; 
+            textArea.style.left = "-9999px";
+            document.body.appendChild(textArea); 
+            textArea.focus(); 
+            textArea.select();
+            try { 
+                document.execCommand('copy'); 
+                this.showToast('تم النسخ!', 'success', 1500); 
+                animateElement(element); 
+            } catch (err) { 
+                this.showToast('فشل النسخ', 'error'); 
+            }
             document.body.removeChild(textArea);
         };
         if (navigator.clipboard && window.isSecureContext) {
-            navigator.clipboard.writeText(text).then(() => { this.showToast('تم النسخ!', 'success', 1500); animateElement(element); })
-            .catch(() => fallbackCopy(text));
+            navigator.clipboard.writeText(text).then(() => { 
+                this.showToast('تم النسخ!', 'success', 1500); 
+                animateElement(element); 
+            }).catch(() => fallbackCopy(text));
         } else fallbackCopy(text);
     },
     
@@ -292,31 +306,42 @@ export const UIService = {
         if (!element) return;
         const textToCopy = element.innerText.trim();
         try {
-            if (navigator.clipboard && window.isSecureContext) await navigator.clipboard.writeText(textToCopy);
-            else {
+            if (navigator.clipboard && window.isSecureContext) {
+                await navigator.clipboard.writeText(textToCopy);
+            } else {
                 const textArea = document.createElement("textarea");
-                textArea.value = textToCopy; textArea.style.position = "fixed"; textArea.style.left = "-999999px";
-                document.body.appendChild(textArea); textArea.focus(); textArea.select();
-                document.execCommand('copy'); textArea.remove();
+                textArea.value = textToCopy; 
+                textArea.style.position = "fixed"; 
+                textArea.style.left = "-999999px";
+                document.body.appendChild(textArea); 
+                textArea.focus(); 
+                textArea.select();
+                document.execCommand('copy'); 
+                textArea.remove();
             }
             element.classList.add('copied-feedback');
             setTimeout(() => { element.classList.remove('copied-feedback'); }, 300);
             this.showToast(`تم نسخ: ${textToCopy}`, 'success');
-        } catch (err) { this.showToast('حدث خطأ أثناء النسخ', 'error'); }
+        } catch (err) { 
+            this.showToast('حدث خطأ أثناء النسخ', 'error'); 
+        }
     },
 
     toggleLoader: function(show, text = 'جاري المعالجة...') {
         const loader = document.getElementById('loader');
         if (loader) {
+            if (this._loaderTimer) {
+                clearTimeout(this._loaderTimer);
+                this._loaderTimer = null;
+            }
             const textSpan = loader.querySelector('span');
             if (textSpan && text) textSpan.innerText = text;
             
             if (show) {
-                loader.style.display = 'flex';
+                loader.classList.remove('hide-element');
                 loader.classList.add('active');
             } else {
                 loader.classList.remove('active');
-                setTimeout(() => { if (loader) loader.style.display = 'none'; }, 200);
             }
         }
     },    
@@ -324,11 +349,13 @@ export const UIService = {
     openModal: function(id) { 
         if (window.innerWidth < 992 && typeof this.closeSidebar === 'function') this.closeSidebar();
         
-        document.querySelectorAll('.modal-overlay.active, .sys-overlay.active').forEach(overlay => {
+        document.querySelectorAll('.modal-overlay.active, .sys-overlay.active, .drawer-overlay.active').forEach(overlay => {
             if (overlay.id !== 'm-' + id && overlay.id !== id) {
                 overlay.classList.remove('active');
                 if (overlay.classList.contains('dynamic-auto-destroy')) {
-                    setTimeout(() => { if (overlay.parentElement) overlay.remove(); }, 300);
+                    setTimeout(() => {
+                        if (!overlay.classList.contains('active') && overlay.parentElement) overlay.remove();
+                    }, 300);
                 }
             }
         });
@@ -336,7 +363,7 @@ export const UIService = {
         const modalEl = document.getElementById('m-' + id) || document.getElementById(id);
         if (modalEl) {
             this.shieldInputsFromBrowserAutofill(modalEl);
-            const scrollContent = modalEl.querySelector('.modal-content,.ud-modal-body,.ud-modal-pro');
+            const scrollContent = modalEl.querySelector('.modal-content, .ud-modal-body, .ud-modal-pro');
             if (scrollContent) scrollContent.scrollTop = 0; 
             modalEl.scrollTop = 0; 
             modalEl.classList.add('active');
@@ -350,18 +377,17 @@ export const UIService = {
         if (id === 'admin-prefs') EventBus.emit('req-update-prefs-ui');
     },
 
-    // 🚀 [المنظف المعماري الذكي (Smart Garbage Collector)]
     closeModal: function(specificId = null) {
         const modalsToClose = specificId ?
             [document.getElementById(specificId) || document.getElementById('m-' + specificId)] :
-            document.querySelectorAll('.modal-overlay.active, .sys-overlay.active');
+            document.querySelectorAll('.modal-overlay.active, .sys-overlay.active, .drawer-overlay.active');
         
         modalsToClose.forEach(modal => {
             if (modal) {
                 modal.classList.remove('active');
                 
                 setTimeout(() => {
-                    if (modal.classList.contains('dynamic-auto-destroy') && modal.parentElement) {
+                    if (!modal.classList.contains('active') && modal.classList.contains('dynamic-auto-destroy') && modal.parentElement) {
                         modal.remove();
                     }
                 }, 300);
@@ -419,7 +445,9 @@ export const UIService = {
     
     clearImg: function(previewId, wrapperId, inputId, event) {
         if(event) event.stopPropagation();
-        const preview = document.getElementById(previewId); const wrapper = document.getElementById(wrapperId); const input = document.getElementById(inputId);
+        const preview = document.getElementById(previewId); 
+        const wrapper = document.getElementById(wrapperId); 
+        const input = document.getElementById(inputId);
         if (preview) { preview.src = ''; preview.classList.add('hide-element'); }
         if (wrapper) wrapper.classList.remove('has-img');
         if (input) input.value = '';

@@ -35,26 +35,34 @@ export const Utils = {
     },
     
     safeUrl: function(url, fallback = '#') {
-        if (!url) return fallback;
-        let cleaned = String(url)
-            .replace(/&#x2F;/gi, '/')
-            .replace(/&#x3D;/gi, '=')
-            .replace(/&amp;/gi, '&')
-            .replace(/[\x00-\x1F\x7F\s]/g, '')
-            .trim();
-        if (/^(javascript|vbscript|data):/i.test(cleaned)) return fallback;
-        
-        try {
-            const parsedUrl = new URL(cleaned, window.location.origin);
-            const protocol = parsedUrl.protocol.toLowerCase();
-            if (['http:', 'https:', 'mailto:', 'tel:'].includes(protocol)) return this.escapeHTML(cleaned);
-            return fallback;
-        } catch (e) {
-            if (cleaned.startsWith('//')) return fallback;
-            if (cleaned.startsWith('/') || cleaned.startsWith('./') || cleaned.startsWith('../') || cleaned.startsWith('#') || cleaned.startsWith('?')) return this.escapeHTML(cleaned);
-            return fallback;
-        }
-    },    enNum: function(num, decimals = null) {
+    if (!url) return fallback;
+    let cleaned = String(url)
+        .replace(/&#x2F;/gi, '/')
+        .replace(/&#x3D;/gi, '=')
+        .replace(/&amp;/gi, '&')
+        .replace(/[\x00-\x1F\x7F\s]/g, '')
+        .trim();
+    if (/^(javascript|vbscript|data):/i.test(cleaned)) return fallback;
+    
+    const escapeAttrUrl = (str) => str
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;')
+        .replace(/`/g, '&#x60;');
+    
+    try {
+        const parsedUrl = new URL(cleaned, window.location.origin);
+        const protocol = parsedUrl.protocol.toLowerCase();
+        if (['http:', 'https:', 'mailto:', 'tel:'].includes(protocol)) return escapeAttrUrl(cleaned);
+        return fallback;
+    } catch (e) {
+        if (cleaned.startsWith('//')) return fallback;
+        if (cleaned.startsWith('/') || cleaned.startsWith('./') || cleaned.startsWith('../') || cleaned.startsWith('#') || cleaned.startsWith('?')) return escapeAttrUrl(cleaned);
+        return fallback;
+    }
+},    enNum: function(num, decimals = null) {
         if (num === null || num === undefined || num === '') return '';
         const n = Number(num);
         if (isNaN(n)) return '';

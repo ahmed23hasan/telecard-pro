@@ -1,41 +1,65 @@
 // ============================================================================
-// 🔐 محرك المصادقة السحابي للإدارة (auth.js) - Bank Grade Security 🏦 V16.4 💎
+// 🔐 محرك المصادقة السحابي للإدارة (auth.js) - Bank Grade Security 🏦 V16.6 💎
 // 🎯 الوظيفة: التحقق من هوية المشرف، حماية الجلسات، ودعم المصادقة الثنائية (2FA)
-// 🚀 التحديثات المعمارية (V16.4 - Multi-Tab UX Fix):
-// 1. Local Storage UX 🛡️: استبدال الذاكرة المؤقتة بالدائمة للسماح بفتح نوافذ متعددة.
-// 2. Zero-Trust Claims 🛡️: إزالة المعرف الثابت (Hardcoded UID) والاعتماد حصرياً على توثيق السيرفر.
 // ============================================================================
 
 import { auth } from './core/firebaseAdapter.js';
 import {
     signInWithEmailAndPassword,
     setPersistence,
-    browserLocalPersistence, // 🚀 [التحديث المعماري]: استخدام الذاكرة الدائمة لراحة المستخدم (Multi-tab)
+    browserLocalPersistence,
     getMultiFactorResolver,
     TotpMultiFactorGenerator
 } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js';
 
+// 🚀 الاعتماد الكامل على كلاس btn-loading المعرّف في admin.css لإظهار/إخفاء السبنر والأيقونة تلقائياً
 const setBtnLoading = (isLoading) => {
     const btn = document.getElementById('btn-login');
     const btnText = document.getElementById('btn-text');
-    const btnIcon = document.getElementById('btn-icon');
-    const spinner = btn?.querySelector('.spinner');
     
     if (!btn) return;
     
-    if (isLoading) {
-        btn.disabled = true;
-        btn.classList.add('btn-loading');
-        if (btnText) btnText.innerText = "جاري التحقق...";
-        if (spinner) spinner.style.display = "inline-block";
-        if (btnIcon) btnIcon.style.display = "none";
-    } else {
-        btn.disabled = false;
-        btn.classList.remove('btn-loading');
-        if (btnText) btnText.innerText = "دخول آمن";
-        if (spinner) spinner.style.display = "none";
-        if (btnIcon) btnIcon.style.display = "inline-block";
+    btn.disabled = isLoading;
+    btn.classList.toggle('btn-loading', isLoading);
+    if (btnText) {
+        btnText.innerText = isLoading ? "جاري التحقق..." : "دخول آمن";
     }
+};
+
+/**
+ * 👑 دالة إنهاء الدخول وفحص صلاحيات الإدارة (Custom Claims)
+ */
+const finalizeAdminLogin = async (user) => {
+    const idTokenResult = await user.getIdTokenResult();
+    const isAuthorizedAdmin = idTokenResult.claims.admin === true;
+    
+    if (!isAuthorizedAdmin) {
+        await auth.signOut();
+        throw new Error('NotAuthorizedAdmin');
+    }
+    
+    localStorage.setItem('telecard_admin_auth', 'true');
+    localStorage.setItem('telecard_admin_last_activity', Date.now().toString());
+    
+    const btnLogin = document.getElementById('btn-login');
+    const modal2fa = document.getElementById('admin-2fa-modal');
+    const btnVerify = document.getElementById('btn-verify-2fa');
+    
+    if (modal2fa && modal2fa.classList.contains('active')) {
+        if (btnVerify) {
+            btnVerify.classList.add('is-success');
+            btnVerify.innerHTML = "تم التحقق ✔";
+        }
+    } else if (btnLogin) {
+        btnLogin.classList.remove('btn-loading');
+        btnLogin.classList.add('is-success');
+        const btnText = document.getElementById('btn-text');
+        if (btnText) btnText.innerText = "تم التحقق.. جاري الدخول";
+    }
+    
+    setTimeout(() => {
+        window.location.replace('admin.html');
+    }, 600);
 };
 
 /**
@@ -48,21 +72,25 @@ const handle2FARequest = (resolver) => {
     const btnCancel = document.getElementById('btn-cancel-2fa');
     const errorMsg = document.getElementById('admin-2fa-error');
     
-    if (!modal) return;
+    if (!modal || !input || !btnVerify || !btnCancel || !errorMsg) return;
     
-    // تنظيف الحقول وإظهار النافذة
     input.value = '';
     errorMsg.classList.add('hide-element');
     modal.classList.add('active');
     input.focus();
     
-    // هندسة زر الإلغاء
+    input.onkeydown = (e) => {
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            if (!btnVerify.disabled) btnVerify.click();
+        }
+    };
+    
     btnCancel.onclick = () => {
         modal.classList.remove('active');
         setBtnLoading(false);
     };
     
-    // هندسة زر التحقق
     btnVerify.onclick = async () => {
         const code = input.value.trim();
         if (code.length !== 6) {
@@ -84,50 +112,16 @@ const handle2FARequest = (resolver) => {
             
         } catch (error) {
             console.error("2FA Error:", error);
-            errorMsg.innerText = "الرمز غير صحيح أو منتهي الصلاحية";
+            if (error.message === 'NotAuthorizedAdmin') {
+                errorMsg.innerText = "عذراً، هذا الحساب لا يملك صلاحيات (Admin) لدخول لوحة الإدارة.";
+            } else {
+                errorMsg.innerText = "الرمز غير صحيح أو منتهي الصلاحية";
+            }
             errorMsg.classList.remove('hide-element');
             btnVerify.innerHTML = originalText;
             btnVerify.disabled = false;
         }
     };
-};
-
-/**
- * 👑 دالة إنهاء الدخول وفحص صلاحيات الإدارة (Custom Claims)
- */
-const finalizeAdminLogin = async (user) => {
-    const idTokenResult = await user.getIdTokenResult();
-    
-    // 🛡️ [التحديث الأمني]: الاعتماد حصرياً على الـ Claims الموثقة من السيرفر وإزالة المعرف الثابت
-    const isAuthorizedAdmin = idTokenResult.claims.admin === true;
-    
-    if (!isAuthorizedAdmin) {
-        await auth.signOut();
-        throw new Error('NotAuthorizedAdmin');
-    }
-    
-    // 🚀 [التحديث المعماري]: استخدام localStorage وتحديث طابع النشاط لمنع الطرد الكاذب عند الدخول
-localStorage.setItem('telecard_admin_auth', 'true');
-localStorage.setItem('telecard_admin_last_activity', Date.now().toString());
-    const btnLogin = document.getElementById('btn-login');
-    const modal2fa = document.getElementById('admin-2fa-modal');
-    
-    if (modal2fa && modal2fa.classList.contains('active')) {
-        const btnVerify = document.getElementById('btn-verify-2fa');
-        if (btnVerify) {
-            btnVerify.style.background = "#059669";
-            btnVerify.innerHTML = "تم التحقق ✔";
-        }
-    } else if (btnLogin) {
-        btnLogin.style.background = "#10b981";
-        document.getElementById('btn-text').innerText = "تم التحقق.. جاري الدخول";
-        const spinner = btnLogin.querySelector('.spinner');
-        if (spinner) spinner.style.display = 'none';
-    }
-    
-    setTimeout(() => {
-        window.location.replace('admin.html');
-    }, 600);
 };
 
 // ============================================================================
@@ -151,7 +145,6 @@ document.addEventListener('DOMContentLoaded', () => {
         setBtnLoading(true);
         
         try {
-            // 🚀 [التحديث المعماري]: حفظ الجلسة محلياً لراحة المستخدم (Multi-tab support)
             await setPersistence(auth, browserLocalPersistence);
             const userCredential = await signInWithEmailAndPassword(auth, inputEmail, inputPass);
             await finalizeAdminLogin(userCredential.user);

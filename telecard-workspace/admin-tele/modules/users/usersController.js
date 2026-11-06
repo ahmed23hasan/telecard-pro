@@ -1,12 +1,13 @@
 // ============================================================================
-// 🧠 متحكم المستخدمين (modules/users/usersController.js) - Cloud-Native V20.2 💎
-// 🚀 التحديثات المعمارية (V20.2 - Standardized Triggers, KYC & State Sync):
-// 1. Unlimited Duration Support ♾️: دعم حفظ المهلة المفتوحة (0 = ∞) في المستويات دون تحويلها قسراً إلى 30 يوماً.
-// 2. Isolated KYC Fix 🪪: إجبار تحديث telecard_kyc/{userId} ومسح ملاحظات الرفض السابقة عند القبول عبر deleteField().
-// 3. KYC Badge Sync 🔔: مزامنة فورية لعدد طلبات التوثيق المعلقة في القائمة الجانبية عند الرفض أو الإبطال.
-// 4. Standard Notification Schema 📨: توحيد بنية الإشعارات الإدارية بإدراج targetType و targetId لتطابق تريجرات السيرفر.
-// 5. Active Firewall Sync 🛡️: المزامنة اللحظية لحظر/إزالة أجهزة وشبكات العميل مع وثيقة active_configs المخصصة.
-// 6. Zero-Read Balance ⚡: تحديث مصفوفة الإيداعات محلياً عند تعديل رصيد العميل دون إهدار 50 قراءة سحابية.
+// 🧠 متحكم المستخدمين (modules/users/usersController.js) - Cloud-Native V20.6 💎
+// 🚀 التحديثات المعمارية:
+// 1. Zero-Flicker Search & Sort 🛡️: إزالة استدعاء req-render-users المسبق قبل اتصال السيرفر لمنع وميض رسالة "لم يتم العثور على العميل" قبل اكتمال الاستعلام.
+// 2. Async Pagination Flow ⚡: جعل دوال الفرز والبحث غير متزامنة (async/await) لانتظار جلب أول دفعة سحابية قبل تحديث حالة الواجهة.
+// 3. Server Authority on Balance 🏦: الحفاظ الكامل على اعتماد السيرفر كمصدر وحيد للحقيقة في الأرصدة وتصفير كاش السجل المالي عند التعديل.
+// 4. Cache Protection on Tier Edit 🔒: حماية كاش عدادات المستويات (tierUserCounts) عند تعديل مستوى موجود مسبقاً.
+// 5. Active Firewall & Security Sync 🛡️: المزامنة اللحظية للأجهزة وشبكات الـ IP المحظورة مع وثيقة active_configs المخصصة.
+// 6. Resilient KYC & Media Purge 🪪: التنظيف السحابي الشامل لمستندات التوثيق عند الرفض أو الإبطال ومزامنة الشارات الجانبية.
+// 7. Race Condition Prevention (reqId) 🛡️: تأمين جلب السجل المالي للعميل (fetchUserHistory) برقم طلب لمنع التداخل.
 // ============================================================================
 
 import { AdminData } from '../../adminData.js';
@@ -23,6 +24,7 @@ export const UsersController = {
     selectedUserId: null,
     selectedTierId: null,
     _actionLocks: new Set(),
+    _historyReqId: 0, // Request Token للسجل المالي
 
     _getUserSafely: async function(userId) {
         const strId = String(userId);
@@ -45,77 +47,90 @@ export const UsersController = {
         } catch(e) { 
             console.error("🚨 فشل جلب العميل من السيرفر:", e);
             EventBus.emit('req-show-toast', { message: 'فشل استدعاء بيانات العميل. تأكد من اتصالك.', type: 'error' });
+        } finally {
+            if (AdminUI?.toggleLoader) AdminUI.toggleLoader(false);
         }
-        if (AdminUI?.toggleLoader) AdminUI.toggleLoader(false);
         
         return u;
     },
 
     searchUsers: async function(q) {
-        const query = (q || '').trim();
+        const query = (typeof q === 'string' && q !== '' ? q : Utils.getVal('user-search')).trim();
         EventBus.emit('req-update-state', { userSearch: query });
         
         AdminData.cursors.users = null;
         AdminData.data.users = [];
         
-        EventBus.emit('req-render-users');
-        
         if (AdminRender?.UsersRender?.loadMoreUsers) {
-            AdminRender.UsersRender.loadMoreUsers();
+            await AdminRender.UsersRender.loadMoreUsers();
         }
     },
 
-    toggleUserSort: function() {
+    toggleUserSort: async function() {
         const currentSort = AdminRender?.UsersRender?.state?.sortUsers || 'desc';
         EventBus.emit('req-update-state', { sortUsers: currentSort === 'desc' ? 'asc' : 'desc' });
         
         AdminData.cursors.users = null;
         AdminData.data.users = [];
         
-        EventBus.emit('req-render-users');
-        if (AdminRender?.UsersRender?.loadMoreUsers) AdminRender.UsersRender.loadMoreUsers();
+        if (AdminRender?.UsersRender?.loadMoreUsers) {
+            await AdminRender.UsersRender.loadMoreUsers();
+        }
     },
 
-    changeUserSort: function(val) {
+    changeUserSort: async function(val) {
         EventBus.emit('req-update-state', { userSortCategory: val, sortUsers: 'desc' });
         
         AdminData.cursors.users = null;
         AdminData.data.users = [];
         
-        EventBus.emit('req-render-users');
-        if (AdminRender?.UsersRender?.loadMoreUsers) AdminRender.UsersRender.loadMoreUsers();
+        if (AdminRender?.UsersRender?.loadMoreUsers) {
+            await AdminRender.UsersRender.loadMoreUsers();
+        }
     },
 
-    fetchUserHistory: async function(userId, isLoadMore = false) {
-        const u = await this._getUserSafely(userId);
-        if (!u) return;
-
-        const limitCount = isLoadMore ? (AdminData.tempUserHistoryLimit || 25) + 25 : 25;
-        AdminData.tempUserHistoryLimit = limitCount;
+    fetchUserHistory: async function(userId, isLoadMore = false) { 
+        const reqId = (this._historyReqId = (this._historyReqId || 0) + 1); // توثيق الطلب
+        const targetUidStr = String(userId); 
         
-        const loadBtn = document.getElementById('btn-load-more-user-history');
-        if (loadBtn) {
-            loadBtn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> جاري الجلب...';
-            loadBtn.disabled = true;
-        }
-
-        try {
-            const activities = await FirebaseAdapter.getCustomerFullHistory(userId, limitCount);
-            activities.forEach(tx => {
-                if (tx.txType === 'order' && AdminData.data.ordersMap) AdminData.data.ordersMap[String(tx.id)] = tx;
-                if (tx.txType === 'deposit' && AdminData.data.depositsMap) AdminData.data.depositsMap[String(tx.id)] = tx;
-            });
-            AdminData.tempUserHistory = { all: activities };
-            EventBus.emit('req-render-user-history');
-        } catch (error) {
-            console.error("فشل جلب سجل العميل:", error);
-            EventBus.emit('req-show-toast', { message: 'تعذر جلب السجل المالي سحابياً', type: 'error' });
-        } finally {
-            if (loadBtn) {
-                loadBtn.innerHTML = '<i class="fa-solid fa-angle-down"></i> عرض المزيد (سحابياً)';
-                loadBtn.disabled = false;
-            }
-        }
+        const u = await this._getUserSafely(targetUidStr); 
+        if (!u || reqId !== this._historyReqId) return; // حماية من تغيير الطلب أثناء جلب المستخدم
+        
+        const limitCount = isLoadMore ? (AdminData.tempUserHistoryLimit || 25) + 25 : 25; 
+        AdminData.tempUserHistoryLimit = limitCount; 
+        
+        const loadBtn = document.getElementById('btn-load-more-user-history'); 
+        if (loadBtn) { 
+            loadBtn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> جاري الجلب...'; 
+            loadBtn.disabled = true; 
+        } 
+        
+        try { 
+            const activities = await FirebaseAdapter.getCustomerFullHistory(targetUidStr, limitCount); 
+            
+            // تحقق صارم: هل ما زلنا في نفس الطلب وهل النافذة لا تزال تعرض نفس العميل؟
+            if (reqId !== this._historyReqId || String(AdminRender?.UsersRender?.state?.currentEditUserId) !== targetUidStr) { 
+                return; 
+            } 
+            
+            activities.forEach(tx => { 
+                if (tx.txType === 'order' && AdminData.data.ordersMap) AdminData.data.ordersMap[String(tx.id)] = tx; 
+                if (tx.txType === 'deposit' && AdminData.data.depositsMap) AdminData.data.depositsMap[String(tx.id)] = tx; 
+            }); 
+            
+            AdminData.tempUserHistory = { all: activities }; 
+            EventBus.emit('req-render-user-history'); 
+            
+        } catch (error) { 
+            if (reqId !== this._historyReqId) return; 
+            console.error("فشل جلب سجل العميل:", error); 
+            EventBus.emit('req-show-toast', { message: 'تعذر جلب السجل المالي سحابياً', type: 'error' }); 
+        } finally { 
+            if (reqId === this._historyReqId && loadBtn) { 
+                loadBtn.innerHTML = '<i class="fa-solid fa-angle-down"></i> عرض المزيد (سحابياً)'; 
+                loadBtn.disabled = false; 
+            } 
+        } 
     },
 
     saveUserEdits: async function(userId) {
@@ -129,11 +144,15 @@ export const UsersController = {
         const newPhone = Utils.getVal('user-edit-phone').trim();
         const newCountry = Utils.getVal('user-edit-country').trim();
         
-        if (!newName) return EventBus.emit('req-show-toast', { message: 'يجب إدخال الاسم الكامل', type: 'warning' });
-        if (!newEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(newEmail)) {
-            return EventBus.emit('req-show-toast', { message: 'يرجى إدخال بريد إلكتروني صحيح', type: 'warning' });
+        if (!newName) {
+            document.getElementById('user-edit-name')?.focus();
+            return EventBus.emit('req-show-toast', { message: '⚠️ حقل مطلوب: يجب إدخال الاسم الكامل', type: 'warning' });
         }
-        
+        if (!newEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(newEmail)) {
+            document.getElementById('user-edit-email')?.focus();
+            return EventBus.emit('req-show-toast', { message: '⚠️ يرجى إدخال بريد إلكتروني صحيح', type: 'warning' });
+        }
+
         this._actionLocks.add(`edit-user-${userId}`);
         if (AdminUI?.toggleLoader) AdminUI.toggleLoader(true, 'جاري فحص وتحديث بيانات العميل في المصادقة والسحابة...');
         
@@ -327,10 +346,13 @@ export const UsersController = {
                     await FirebaseAdapter.set('telecard_system', 'active_configs', firewallUpdates);
                 }
 
-                EventBus.emit('action-triggered', { action: 'view-user', id: userId });
-                
+                if (document.getElementById('m-user-detail')?.classList.contains('active')) {
+                    EventBus.emit('action-triggered', { action: 'view-user', id: userId, preventModalOpen: true });
+                }
                 const msg = `تم ${u.isBanned ? 'حظر' : 'إلغاء حظر'} العميل بنجاح`;
-                EventBus.emit('req-finish-action', { renderEvent: 'req-render-users', logAction: u.isBanned ? 'BAN_USER' : 'UNBAN_USER', logDetails: msg, toastMsg: msg });
+                EventBus.emit('req-render-users');
+                if (AdminData?.addLog) AdminData.addLog(u.isBanned ? 'BAN_USER' : 'UNBAN_USER', msg);
+                EventBus.emit('req-show-toast', { message: msg, type: 'success' });
             } else {
                 throw new Error("تم رفض الطلب من السيرفر");
             }
@@ -437,37 +459,30 @@ export const UsersController = {
             });
             
             if (result && result.success) {
-                const newBal = result.newBalance;
-                const adjustUsd = Math.abs(Number(result.newDeposit?.creditedBaseUsd ?? adjustAmount));
-                
-                user.walletBalance = newBal;
-                user.balance = newBal;
-                user.wallet_balance = newBal;
-                
-                if (normalizedType === 'add') {
-                    user.totalDeposit = FinancialEngine.safeAdd(user.totalDeposit || 0, adjustUsd);
+                const freshUser = await FirebaseAdapter.getById('telecard_users', String(userId));
+                if (freshUser) {
+                    Object.assign(user, freshUser);
+                    if (AdminData.data.usersMap) AdminData.data.usersMap[String(userId)] = user;
                 } else {
-                    user.totalDeposit = Math.max(0, FinancialEngine.safeSub(user.totalDeposit || 0, adjustUsd));
-                }
-                
-                if (result.newDeposit) {
-                    const localDepDoc = { ...result.newDeposit, time: Date.now(), createdAt: Date.now() };
-                    if (!Array.isArray(AdminData.data.deposits)) AdminData.data.deposits = [];
-                    AdminData.data.deposits.unshift(localDepDoc);
-                    if (!AdminData.data.depositsMap) AdminData.data.depositsMap = {};
-                    AdminData.data.depositsMap[String(localDepDoc.id)] = localDepDoc;
-                    EventBus.emit('req-render-deposits');
+                    const newBal = result.newBalance;
+                    user.walletBalance = newBal;
+                    user.balance = newBal;
+                    user.wallet_balance = newBal;
                 }
 
-                AdminUI?.UsersUI?.animateBalanceUpdate?.(newBal, curCode, normalizedType);
-                if (AdminUI?.UsersUI?.viewUser) AdminUI.UsersUI.viewUser(userId, true);
+                if (AdminRender?.UsersRender?.state) {
+                    AdminRender.UsersRender.state._loadedHistoryForUid = null;
+                }
 
-                if (AdminRender?.UsersRender?.state?.userHistoryTab === 'deposits') {
-                    this.fetchUserHistory(userId, false);
+                if (document.getElementById('m-user-detail')?.classList.contains('active') && AdminUI?.UsersUI?.viewUser) {
+                    await AdminUI.UsersUI.viewUser(userId, true);
+                    AdminUI?.UsersUI?.animateBalanceUpdate?.(user.walletBalance ?? result.newBalance, curCode, normalizedType);
                 }
 
                 const preciseMsg = `تم ${actionName} مبلغ ${adjustAmount} ${displayCur} للعميل ${displayName}`;
-                EventBus.emit('req-finish-action', { renderEvent: 'req-render-users', logAction: normalizedType === 'add' ? 'ADD_BALANCE' : 'SUB_BALANCE', logDetails: preciseMsg, toastMsg: preciseMsg });
+                EventBus.emit('req-render-users');
+                if (AdminData?.addLog) AdminData.addLog(normalizedType === 'add' ? 'ADD_BALANCE' : 'SUB_BALANCE', preciseMsg);
+                EventBus.emit('req-show-toast', { message: preciseMsg, type: 'success' });
             }
         } catch (error) {
             EventBus.emit('req-show-toast', { message: `فشل السيرفر: ${error.message}`, type: 'error' });
@@ -569,15 +584,23 @@ export const UsersController = {
         let type = (!isDefaultTier && typeSelectEl && typeSelectEl.value === 'api') ? 'api' : 'retail';
         
         const minSafeMarginPct = FinancialEngine?.CONFIG?.MIN_MARGIN_PERCENT || 0.5;
-        if (!name) return EventBus.emit('req-show-toast', { message: 'أدخل اسم المستوى', type: 'error' });
+        if (!name) {
+            document.getElementById('t-name')?.focus();
+            return EventBus.emit('req-show-toast', { message: '⚠️ حقل مطلوب: يرجى إدخال اسم المستوى', type: 'warning' });
+        }
         if (isNaN(profit) || profit < minSafeMarginPct) {
+            document.getElementById('t-profit')?.focus();
             return EventBus.emit('req-show-toast', { message: `لا يمكن تعيين نسبة ربح أقل من الحد الأدنى الآمن للنظام (${minSafeMarginPct}%) لحماية رأس المال.`, type: 'error' });
         }
-        if (minP < 0) return EventBus.emit('req-show-toast', { message: 'قاع الربح لا يمكن أن يكون سالباً.', type: 'error' });
+        if (minP < 0) {
+            document.getElementById('t-min')?.focus();
+            return EventBus.emit('req-show-toast', { message: 'قاع الربح لا يمكن أن يكون سالباً.', type: 'error' });
+        }
         const existingTiers = Array.isArray(AdminData.data.tiers) ? AdminData.data.tiers : [];
         
         if (type === 'retail') {
             if (!isDefaultTier && cond <= 0) {
+                document.getElementById('t-cond')?.focus();
                 return EventBus.emit('req-show-toast', { message: 'شرط الترقية ($) لأي مستوى تجزئة إضافي يجب أن يكون أكبر من 0$ (لأن 0$ محجوز للمستوى الافتراضي).', type: 'error' });
             }
 
@@ -615,18 +638,19 @@ export const UsersController = {
             let finalTierId = targetId;
             
             if (isEdit) {
-    const idx = tiers.findIndex(x => String(x.id).trim() === targetId);
-    if (idx > -1) {
-        tiers[idx] = { ...tiers[idx], name, nameAr: name, icon, type, profitPercent: profit, minProfitUsd: minP, threshold: cond, durationDays: dur, isDefault: isDef };
-        delete tiers[idx].badge;
-    } else {
-        finalTierId = targetId;
-        tiers.push({ id: finalTierId, name, nameAr: name, icon, type, profitPercent: profit, minProfitUsd: minP, threshold: cond, durationDays: dur, isDefault: isDef, autoAdvance: true });
-    }
-} else {
-    finalTierId = 'TIER_' + Utils.generateID();
-    tiers.push({ id: finalTierId, name, nameAr: name, icon, type, profitPercent: profit, minProfitUsd: minP, threshold: cond, durationDays: dur, isDefault: false, autoAdvance: true });
-}            
+                const idx = tiers.findIndex(x => String(x.id).trim() === targetId);
+                if (idx > -1) {
+                    const resolvedAuto = type === 'api' ? false : (tiers[idx].autoAdvance !== false);
+                    tiers[idx] = { ...tiers[idx], name, nameAr: name, icon, type, profitPercent: profit, minProfitUsd: minP, threshold: cond, durationDays: dur, isDefault: isDef, autoAdvance: resolvedAuto };
+                    delete tiers[idx].badge;
+                } else {
+                    finalTierId = targetId;
+                    tiers.push({ id: finalTierId, name, nameAr: name, icon, type, profitPercent: profit, minProfitUsd: minP, threshold: cond, durationDays: dur, isDefault: isDef, autoAdvance: type !== 'api' });
+                }
+            } else {
+                finalTierId = 'TIER_' + Utils.generateID();
+                tiers.push({ id: finalTierId, name, nameAr: name, icon, type, profitPercent: profit, minProfitUsd: minP, threshold: cond, durationDays: dur, isDefault: false, autoAdvance: type !== 'api' });
+            }            
             tiers.forEach(x => { x.isDefault = (String(x.id) === 'TIER_DEFAULT'); });
             
             AdminData.data.tiers = tiers;
@@ -640,7 +664,9 @@ export const UsersController = {
             const idInput = document.getElementById('t-id');
             if (idInput) idInput.value = finalTierId;
             
-            AdminData.data.tierUserCounts = null;
+            if (!isEdit) {
+                AdminData.data.tierUserCounts = null; // تفريغ العدادات فقط عند إضافة مستوى جديد
+            }
 
             EventBus.emit('req-finish-action', {
                 renderEvent: 'req-render-tiers',
@@ -746,15 +772,15 @@ export const UsersController = {
                     }
                 }
 
-                if (AdminRender?.UsersRender?.renderTierUsersPage) {
-                    AdminRender.UsersRender.renderTierUsersPage();
-                } else if (AdminRender && typeof AdminRender.renderTierUsersPage === 'function') {
-                    AdminRender.renderTierUsersPage();
+                if (document.getElementById('view-tier-users')?.classList.contains('active')) {
+                    AdminRender?.UsersRender?.renderTierUsersPage?.();
                 }
                 AdminData.data.tierUserCounts = null;
                 EventBus.emit('req-render-tiers');
-                EventBus.emit('action-triggered', { action: 'view-user', id: userId });
-                EventBus.emit('req-show-toast', { message: `تم ترقية العميل بنجاح دون المساس برصيده`, type: 'success' });
+                if (document.getElementById('m-user-detail')?.classList.contains('active')) {
+                    EventBus.emit('action-triggered', { action: 'view-user', id: userId, preventModalOpen: true });
+                }
+                EventBus.emit('req-show-toast', { message: `تم تحديث مستوى العميل بنجاح دون المساس برصيده`, type: 'success' });
             }
         } catch (error) {
             EventBus.emit('req-show-toast', { message: `فشل السيرفر: ${error.message}`, type: 'error' });
@@ -765,14 +791,15 @@ export const UsersController = {
     },
 
     confirmTierSelection: function() {
-        if (!this.selectedUserId || !this.selectedTierId) {
+        const chosenTierId = this.selectedTierId || document.querySelector('#tier-selection-list .tier-option.selected')?.dataset?.tierId;
+        if (!this.selectedUserId || !chosenTierId) {
             return EventBus.emit('req-show-toast', { message: 'حدد مستوى أولاً', type: 'error' });
         }
         
         const overrideCheckbox = document.getElementById('tier-manual-override');
         const isManualOverride = overrideCheckbox ? overrideCheckbox.checked : false;
 
-        this.updateUserTier(this.selectedUserId, this.selectedTierId, isManualOverride);
+        this.updateUserTier(this.selectedUserId, chosenTierId, isManualOverride);
         AdminUI?.UsersUI?.closeTierSelection?.();
         
         this.selectedUserId = null; 
@@ -794,95 +821,7 @@ export const UsersController = {
             this._actionLocks.delete(`toggle-auto-${id}`);
         }
     },
-
-    _sha256: async function(message) {
-        const msgBuffer = new TextEncoder().encode(message);
-        const hashBuffer = await crypto.subtle.digest('SHA-256', msgBuffer);
-        const hashArray = Array.from(new Uint8Array(hashBuffer));
-        return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
-    },
-
-    generateApiKey: async function(userId) {
-        if (this._actionLocks.has(`gen-api-${userId}`)) return;
-
-        const u = await this._getUserSafely(userId);
-        if (!u || !u.isApiMerchant) return;
-
-        const confirm = await AdminUI.showConfirm(`⚠️ تنبيه أمني: سيتم توليد مفتاح API جديد وحفظ بصمته سحابياً، وسيتم إبطال أي مفتاح سابق تلقائياً. المفتاح الجديد سيظهر لك مرة واحدة فقط لنسخه وإرساله للعميل.\n\nهل أنت متأكد؟`, 'توليد مفتاح ربط جديد');
-        if (!confirm) return;
-
-        this._actionLocks.add(`gen-api-${userId}`);
-        if (AdminUI?.toggleLoader) AdminUI.toggleLoader(true, 'جاري توليد وتشفير المفتاح سحابياً...');
-
-        try {
-            const rawKey = 'TC_API_' + Utils.generateID() + '_' + Date.now().toString(36) + Math.random().toString(36).substr(2, 9);
-            const hashedKey = await this._sha256(rawKey);
-
-            await FirebaseAdapter.updateDocument('telecard_users', userId, { apiKeyHash: hashedKey });
-            
-            const successMsg = `
-                <div class="alert alert-success mt-10 mb-0">
-                    <h5 class="fw-bold mb-10"><i class="fa-solid fa-check-circle me-1"></i> تم توليد المفتاح بنجاح!</h5>
-                    <p class="fs-13 text-dark mb-10">انسخ المفتاح التالي وأرسله للعميل. <b>لن يظهر هذا المفتاح مرة أخرى أبداً</b> لأسباب أمنية.</p>
-                    <div class="p-10 bg-body rounded border user-select-all" style="word-break: break-all; font-family: monospace; cursor: copy;">
-                        ${rawKey}
-                    </div>
-                </div>
-            `;
-            
-            await AdminUI.showAlert(successMsg, 'اكتمل التوليد');
-            
-            if (AdminData?.addLog) AdminData.addLog('GENERATE_API_KEY', `تم إعادة تعيين مفتاح الـ API للتاجر: ${u.fullName || u.username}`);
-            
-            u.apiKeyHash = hashedKey; 
-            if (AdminUI?.UsersUI?.viewUser) AdminUI.UsersUI.viewUser(userId, true); 
-
-        } catch (error) {
-            EventBus.emit('req-show-toast', { message: 'فشل توليد المفتاح سحابياً', type: 'error' });
-        } finally {
-            this._actionLocks.delete(`gen-api-${userId}`);
-            if (AdminUI?.toggleLoader) AdminUI.toggleLoader(false);
-        }
-    },
-
-    saveWebhook: async function(userId) {
-        if (this._actionLocks.has(`save-webhook-${userId}`)) return;
-
-        const u = await this._getUserSafely(userId);
-        if (!u || !u.isApiMerchant) return;
-
-        const urlInput = Utils.getVal('dev-webhook-url', '').trim();
-        const secretInput = Utils.getVal('dev-webhook-secret', '').trim();
-
-        if (urlInput && !urlInput.startsWith('https://')) {
-            return EventBus.emit('req-show-toast', { message: 'رابط الـ Webhook يجب أن يكون آمناً ويبدأ بـ https://', type: 'error' });
-        }
-
-        this._actionLocks.add(`save-webhook-${userId}`);
-        if (AdminUI?.toggleLoader) AdminUI.toggleLoader(true, 'جاري حفظ إعدادات الربط...');
-
-        try {
-            await FirebaseAdapter.updateDocument('telecard_users', userId, {
-                webhookUrl: urlInput || null,
-                webhookSecret: secretInput || null
-            });
-
-            u.webhookUrl = urlInput;
-            u.webhookSecret = secretInput;
-            
-            EventBus.emit('req-show-toast', { message: 'تم حفظ إعدادات الـ Webhook بنجاح', type: 'success' });
-            if (AdminData?.addLog) AdminData.addLog('SAVE_WEBHOOK', `تم تحديث مسار الربط للتاجر: ${u.fullName || u.username}`);
-            
-            if (AdminUI?.UsersUI?.viewUser) AdminUI.UsersUI.viewUser(userId, true);
-
-        } catch (error) {
-            EventBus.emit('req-show-toast', { message: 'فشل حفظ الإعدادات سحابياً', type: 'error' });
-        } finally {
-            this._actionLocks.delete(`save-webhook-${userId}`);
-            if (AdminUI?.toggleLoader) AdminUI.toggleLoader(false);
-        }
-    },
-
+        
     processKycDecision: async function(userId, decision) {
         if (this._actionLocks.has(`kyc-${userId}`)) return;
         this._actionLocks.add(`kyc-${userId}`);
@@ -913,40 +852,40 @@ export const UsersController = {
 
         try {
             const hasCompletedInitialSetup = Boolean(u.identityCompletedAt || u.isVerified === true);
-const updatePayload = {
-    kycStatus: decision === 'approve' ? 'approved' : 'rejected',
-    isVerified: decision === 'approve' ? true : hasCompletedInitialSetup,
-    kycReviewedAt: serverTimestamp(),
-    kycReviewNote: decision === 'approve' ? FirebaseAdapter.deleteField() : note
-};
+            const updatePayload = {
+                kycStatus: decision === 'approve' ? 'approved' : 'rejected',
+                isVerified: decision === 'approve' ? true : hasCompletedInitialSetup,
+                kycReviewedAt: serverTimestamp(),
+                kycReviewNote: decision === 'approve' ? FirebaseAdapter.deleteField() : note
+            };
 
-if (decision === 'reject') {
-    updatePayload.kycData = FirebaseAdapter.deleteField();
-    
-    if (u.kycData) {
-        let imagesToDelete = [u.kycData.frontImg, u.kycData.backImg, u.kycData.selfieImg];
-        if (Array.isArray(u.kycData.docs)) {
-            u.kycData.docs.forEach(docItem => {
-                imagesToDelete.push(typeof docItem === 'string' ? docItem : docItem.url);
-            });
-        }
-        
-        imagesToDelete.forEach(img => {
-            if (img && typeof img === 'string') FirebaseAdapter.deleteImageByUrl(img).catch(() => {});
-        });
-    }
-}
+            if (decision === 'reject') {
+                updatePayload.kycData = FirebaseAdapter.deleteField();
+                
+                if (u.kycData) {
+                    let imagesToDelete = [u.kycData.frontImg, u.kycData.backImg, u.kycData.selfieImg];
+                    if (Array.isArray(u.kycData.docs)) {
+                        u.kycData.docs.forEach(docItem => {
+                            imagesToDelete.push(typeof docItem === 'string' ? docItem : docItem.url);
+                        });
+                    }
+                    
+                    imagesToDelete.forEach(img => {
+                        if (img && typeof img === 'string') FirebaseAdapter.deleteImageByUrl(img).catch(() => {});
+                    });
+                }
+            }
 
-await FirebaseAdapter.updateDocument('telecard_users', userId, updatePayload);
+            await FirebaseAdapter.updateDocument('telecard_users', userId, updatePayload);
 
-// 🚀 تحديث وثيقة telecard_kyc/{userId} بالحقل القياسي الموحد kycReviewNote
-const targetKycDocId = String(u.kycDocId || userId);
-await FirebaseAdapter.set('telecard_kyc', targetKycDocId, {
-    userId: String(userId),
-    status: updatePayload.kycStatus,
-    kycReviewNote: decision === 'approve' ? FirebaseAdapter.deleteField() : note,
-    updatedAt: serverTimestamp()
-}).catch(() => {});
+            const targetKycDocId = String(u.kycDocId || userId);
+            await FirebaseAdapter.set('telecard_kyc', targetKycDocId, {
+                userId: String(userId),
+                status: updatePayload.kycStatus,
+                kycReviewNote: decision === 'approve' ? FirebaseAdapter.deleteField() : note,
+                updatedAt: serverTimestamp()
+            }).catch(() => {});
+
             u.kycStatus = updatePayload.kycStatus;
             u.isVerified = updatePayload.isVerified;
             if (decision === 'approve') {

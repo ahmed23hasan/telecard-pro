@@ -1,10 +1,11 @@
 // ============================================================================
-// 📅 خدمة التقويم المتقدمة (core/calendarService.js) - النواة الصلبة V15.1 💎
+// 📅 خدمة التقويم المتقدمة (core/calendarService.js) - النواة الصلبة V15.2 💎
 // 🎯 الوظيفة: محرك اختيار التواريخ والوقت (مستقل تماماً عن أي ميزة أخرى)
-// 🚀 التحديثات (V15.1 - Missing Links Fix):
-// 1. إضافة دوال (selectDay) و (toggleYears) المفقودة لربطها بـ systemActions.
-// 2. Timezone Shield: تحويل كافة التواريخ المدخلة إلى (Absolute UTC).
-// 3. دعم 'alert' في نافذة إرسال الإشعارات.
+// 🌟 التحديثات المعمارية:
+// 1. Zero Inline Styles 🧹: حذف حقن الستايل المباشر (modal.style.top/left/zIndex)
+//    والاعتماد كلياً على فئة .calendar-modal والمتغير المركزي (--z-cal) في admin.css.
+// 2. Strict CSS Sync 📐: إدارة ظهور وإغلاق النافذة عبر فئات CSS (.show / .active) حصراً.
+// 3. Timezone Shield & Edge Fixes 🛡️: الحفاظ على استقرار الحسابات الزمنية وتفادي قفزات الأشهر.
 // ============================================================================
 
 import { AdminTemplates } from '../adminTemplates.js';
@@ -24,62 +25,61 @@ export const CalendarService = {
         this.withTime = !!withTime;
         
         const timeEl = document.getElementById('cal-time-selector');
-        if(timeEl) {
-            if(this.withTime) timeEl.classList.remove('hide-element');
+        if (timeEl) {
+            if (this.withTime) timeEl.classList.remove('hide-element');
             else timeEl.classList.add('hide-element');
         }
 
         let savedVal = null;
-        // ✅ التعديل هنا: إضافة 'alert'
         if (['coupon', 'offer', 'sys', 'alert'].includes(section)) {
             savedVal = document.getElementById(`${section}-${type}`)?.value;
         } else {
             savedVal = currentFilterValue || window.AppController?.filters?.[section]?.[type] || null;
         }
         
-        if (savedVal) {
-            const parsedTs = Number(savedVal) || savedVal;
-            const dObj = new Date(parsedTs);
-            
+        const parsedTs = savedVal ? (Number(savedVal) || savedVal) : null;
+        const dObj = parsedTs ? new Date(parsedTs) : null;
+
+        if (dObj && !isNaN(dObj.getTime())) {
             // 🛡️ [Timezone Shield]: إعادة بناء التاريخ المحلي بناءً على مكونات الـ UTC
             this.selectedDate = new Date(dObj.getUTCFullYear(), dObj.getUTCMonth(), dObj.getUTCDate(), dObj.getUTCHours(), dObj.getUTCMinutes());
             this.currentDate = new Date(dObj.getUTCFullYear(), dObj.getUTCMonth(), 1);
             
-            if(this.withTime) {
+            if (this.withTime) {
                 const hEl = document.getElementById('cal-hour');
                 const mEl = document.getElementById('cal-minute');
-                if(hEl) hEl.value = String(this.selectedDate.getHours()).padStart(2, '0');
-                if(mEl) mEl.value = String(this.selectedDate.getMinutes()).padStart(2, '0');
+                if (hEl) hEl.value = String(this.selectedDate.getHours()).padStart(2, '0');
+                if (mEl) mEl.value = String(this.selectedDate.getMinutes()).padStart(2, '0');
             }
         } else {
-            this.selectedDate = null;
-            this.currentDate = new Date();
-            if(this.withTime) {
+            const now = new Date();
+            // تحديد يومنا الحالي كـ default لتفادي مشكلة الزر الصامت
+            this.selectedDate = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+            this.currentDate = new Date(now.getFullYear(), now.getMonth(), 1);
+            if (this.withTime) {
                 const hEl = document.getElementById('cal-hour');
                 const mEl = document.getElementById('cal-minute');
-                if(hEl) hEl.value = '23';
-                if(mEl) mEl.value = '59';
+                if (hEl) hEl.value = '23';
+                if (mEl) mEl.value = '59';
             }
         }
 
         this.renderCalendar();
         
         const modal = document.getElementById('cal-modal');
-        if(modal) {
-            modal.style.top = '';
-            modal.style.left = '';
+        if (modal) {
             modal.classList.add('show');
         }
     },
     
     close: function() {
         const modal = document.getElementById('cal-modal');
-        if(modal) {
+        if (modal) {
             modal.classList.remove('show');
             const mList = document.getElementById('cal-month-list');
             const yList = document.getElementById('cal-year-list');
-            if(mList) mList.classList.remove('active');
-            if(yList) yList.classList.remove('active');
+            if (mList) mList.classList.remove('active');
+            if (yList) yList.classList.remove('active');
         }
     },
 
@@ -89,8 +89,8 @@ export const CalendarService = {
         
         const monthTxt = document.getElementById('cal-month-text');
         const yearTxt = document.getElementById('cal-year-text');
-        if(monthTxt) monthTxt.innerText = this.months[month];
-        if(yearTxt) {
+        if (monthTxt) monthTxt.innerText = this.months[month];
+        if (yearTxt) {
             yearTxt.innerText = Utils.enNum(year); 
             yearTxt.setAttribute('dir', 'ltr');
             yearTxt.setAttribute('lang', 'en');
@@ -100,7 +100,7 @@ export const CalendarService = {
         const daysInMonth = new Date(year, month + 1, 0).getDate();
         
         const grid = document.getElementById('cal-days-grid');
-        if(!grid) return;
+        if (!grid) return;
         
         let daysHtml = [];
         for (let i = 0; i < firstDay; i++) daysHtml.push(AdminTemplates.calEmptyDay());
@@ -112,7 +112,6 @@ export const CalendarService = {
         grid.innerHTML = daysHtml.join('');
     },
 
-    // 🚀 [إصلاح الخلل]: الدالة المفقودة لاختيار اليوم
     selectDay: function(dayNumber) {
         if (!dayNumber) return;
         this.selectedDate = new Date(this.currentDate.getFullYear(), this.currentDate.getMonth(), dayNumber);
@@ -134,8 +133,10 @@ export const CalendarService = {
     confirm: function() {
         if (this.selectedDate) {
             if (this.withTime) {
-                const hEl = document.getElementById('cal-hour'); const mEl = document.getElementById('cal-minute');
-                const hh = Math.min(23, Math.max(0, parseInt(hEl?.value) || 0)); const mm = Math.min(59, Math.max(0, parseInt(mEl?.value) || 0));
+                const hEl = document.getElementById('cal-hour'); 
+                const mEl = document.getElementById('cal-minute');
+                const hh = Math.min(23, Math.max(0, parseInt(hEl?.value) || 0)); 
+                const mm = Math.min(59, Math.max(0, parseInt(mEl?.value) || 0));
                 this.selectedDate.setHours(hh, mm, 0, 0);
             }
             
@@ -148,65 +149,89 @@ export const CalendarService = {
             const m = String(mIdx + 1).padStart(2, '0');
             const d = String(dNum).padStart(2, '0');
             
-            // ✅ التعديل هنا: إضافة 'alert'
             if (['coupon', 'offer', 'sys', 'alert'].includes(this.targetSection)) {
                 // 🛡️ [Timezone Shield]: تحويل الاختيار إلى طابع زمني (UTC) نقي
                 const utcTimestamp = Date.UTC(y, mIdx, dNum, hNum, minNum, 0);
                 
                 const hiddenInp = document.getElementById(`${this.targetSection}-${this.targetType}`);
-                if(hiddenInp) hiddenInp.value = utcTimestamp;
+                if (hiddenInp) hiddenInp.value = utcTimestamp;
                 
                 let displayStr = `${d}/${m}/${y}`;
-                if(this.withTime) {
+                if (this.withTime) {
                     const hhStr = String(hNum).padStart(2, '0');
                     const mmStr = String(minNum).padStart(2, '0');
                     displayStr += ` ${hhStr}:${mmStr}`;
                 }
 
                 const txtEl = document.getElementById(`date-${this.targetType}-${this.targetSection}`);
-                if(txtEl) { txtEl.innerText = displayStr; txtEl.classList.remove('placeholder-text'); txtEl.closest('.custom-field')?.classList.add('active'); }
+                if (txtEl) { 
+                    txtEl.innerText = displayStr; 
+                    txtEl.classList.remove('placeholder-text'); 
+                    txtEl.closest('.custom-field')?.classList.add('active'); 
+                }
                 if (this.targetSection === 'sys') EventBus.emit('req-save-system');
             } else {
                 const dateStr = `${y}-${m}-${d}`;
                 EventBus.emit('filter-date-changed', { section: this.targetSection, type: this.targetType, dateStr: dateStr, dateObj: this.selectedDate });
                 const txtEl = document.getElementById(`date-${this.targetType}-${this.targetSection}`);
-                if(txtEl) { txtEl.innerText = `${d}/${m}/${y}`; txtEl.classList.remove('placeholder-text'); txtEl.closest('.custom-field')?.classList.add('active'); }
+                if (txtEl) { 
+                    txtEl.innerText = `${d}/${m}/${y}`; 
+                    txtEl.classList.remove('placeholder-text'); 
+                    txtEl.closest('.custom-field')?.classList.add('active'); 
+                }
             }
         }
         this.close();
     },
 
     clear: function() {
-        // ✅ التعديل هنا: إضافة 'alert'
         if (['coupon', 'offer', 'sys', 'alert'].includes(this.targetSection)) {
             const hiddenInp = document.getElementById(`${this.targetSection}-${this.targetType}`);
-            if(hiddenInp) hiddenInp.value = "";
+            if (hiddenInp) hiddenInp.value = "";
             const txtEl = document.getElementById(`date-${this.targetType}-${this.targetSection}`);
-            if(txtEl) { txtEl.innerText = this.withTime ? "DD/MM/YYYY HH:MM" : "DD/MM/YYYY"; txtEl.classList.add('placeholder-text'); txtEl.closest('.custom-field')?.classList.remove('active'); }
+            if (txtEl) { 
+                txtEl.innerText = this.withTime ? "DD/MM/YYYY HH:MM" : "DD/MM/YYYY"; 
+                txtEl.classList.add('placeholder-text'); 
+                txtEl.closest('.custom-field')?.classList.remove('active'); 
+            }
             if (this.targetSection === 'sys') EventBus.emit('req-save-system');
         } else {
             EventBus.emit('filter-date-cleared', { section: this.targetSection, type: this.targetType });
             const txtEl = document.getElementById(`date-${this.targetType}-${this.targetSection}`);
-            if(txtEl) { txtEl.innerText = 'DD/MM/YYYY'; txtEl.classList.add('placeholder-text'); txtEl.closest('.custom-field')?.classList.remove('active'); }
+            if (txtEl) { 
+                txtEl.innerText = 'DD/MM/YYYY'; 
+                txtEl.classList.add('placeholder-text'); 
+                txtEl.closest('.custom-field')?.classList.remove('active'); 
+            }
         }
         this.close();
     },
 
     toggleMonths: function() {
         const list = document.getElementById('cal-month-list');
-        if(!list) return;
+        if (!list) return;
         list.classList.toggle('active');
         if (list.classList.contains('active')) list.innerHTML = AdminTemplates.calMonthList(this.months, this.currentDate.getMonth());
     },
     
-    // 🚀 [إصلاح الخلل]: الدالة المفقودة لفتح قائمة السنوات
     toggleYears: function() {
         const list = document.getElementById('cal-year-list');
-        if(!list) return;
+        if (!list) return;
         list.classList.toggle('active');
         if (list.classList.contains('active')) list.innerHTML = AdminTemplates.calYearList(this.currentDate.getFullYear(), Utils.enNum);
     },
     
-    setYear: function(y) { this.currentDate.setFullYear(y); document.getElementById('cal-year-list')?.classList.remove('active'); this.renderCalendar(); },
-    setMonth: function(m) { this.currentDate.setMonth(m); document.getElementById('cal-month-list')?.classList.remove('active'); this.renderCalendar(); }
+    // حل مشكلة قفز الأشهر بإضافة setDate(1)
+    setYear: function(y) { 
+        this.currentDate.setDate(1); 
+        this.currentDate.setFullYear(y); 
+        document.getElementById('cal-year-list')?.classList.remove('active'); 
+        this.renderCalendar(); 
+    },
+    setMonth: function(m) { 
+        this.currentDate.setDate(1); 
+        this.currentDate.setMonth(m); 
+        document.getElementById('cal-month-list')?.classList.remove('active'); 
+        this.renderCalendar(); 
+    }
 };

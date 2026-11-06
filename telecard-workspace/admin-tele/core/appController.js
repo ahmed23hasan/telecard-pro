@@ -1,12 +1,12 @@
 // ============================================================================
-// 🧠 الموجه المركزي للنظام (core/appController.js) - Enterprise V19.3 💎
-// 🎯 الوظيفة: إقلاع النظام، الملاحة، إدارة حالة النظام، والربط المركزي للأحداث
-// 🚀 التحديثات المعمارية (V19.3 - Raw Data Save & Anti-Double Escape):
-// 1. Raw Data Persistence 💾: حفظ النصوص الخام (غير المشفرة) في Firestore لمنع التشفير المزدوج والتشوهات البصرية.
-// 2. Auth Timeout Enforcement ⏱️: إنهاء الجلسة فعلياً (logoutAdmin) عند تجاوز مهلة التحقق من التوثيق.
-// 3. Zero-Leak Firewall UI 🧱: توجيه دوال حظر/فك حظر الـ IP والأجهزة لتحديث وقراءة الوثيقة السرية (active_configs) مباشرة لمنع التسريب.
-// 4. Zero-Read Badges 🚀: إزالة الاستدعاءات المكررة لتحديث الشارات والاعتماد كلياً على adminData.
-// 5. Search Timer Clash Fix ⏱️: توحيد استدعاء السيرفر عند البحث وإلغاء المؤقتات المعلقة لمنع التعارض.
+// 🧠 الموجه المركزي للنظام (core/appController.js) - Enterprise V20.4 💎
+// ============================================================================
+// 🌟 التحديثات المعمارية:
+// 1. Pure Routing Hub 🧭: إزالة التجاوزات اليدوية وجمل if الشرطية من مستمع action-triggered وجعل التوجيه يمر نقياً عبر getSystemRouters().
+// 2. Lazy On-Demand Reviews ☁️: منع التحميل المسبق للتقييمات، وتفعيل جلبها سحابياً من السيرفر فقط عند فتح تبويب الشكاوى مع تثبيت كاش التحميل (_reviewsLoaded).
+// 3. Server-Authoritative Timestamp ⏱️: اعتماد serverTimestamp() الرسمي من Firestore عند تسجيل الردود على الشكاوى لمنع تلاعب توقيت المتصفح المحلي.
+// 4. Memory Leak & DOM Cleanup 🧹: تصفير حقول الملفات #adm-img-file وإفراغ الذاكرة المؤقتة (tempImg و tempFile) فور تأكيد حفظ ملف المدير.
+// 5. Zero Undefined Classes 🎨: كبسولات الحالات الموحدة (.v-stat-chip.chip-danger و .v-stat-chip.chip-info) وكروت .promo-card المعيارية.
 // ============================================================================
 
 import { AdminData } from '../adminData.js';
@@ -15,7 +15,6 @@ import { AdminRender } from '../adminRender.js';
 import { Utils, EventBus } from '../adminUtils.js';
 
 import { VAPID_KEY, normalizeRates } from '../adminConfig.js';
-
 import { RenderHelpers } from './renderHelpers.js'; 
 
 import { OrdersActions } from '../modules/orders/ordersActions.js';
@@ -28,7 +27,7 @@ import { SystemActions } from './systemActions.js';
 import { CatalogController } from '../modules/catalog/catalogController.js';
 import { MarketingController } from '../modules/marketing/marketingController.js';
 import { FirebaseAdapter, auth } from './firebaseAdapter.js';
-import { arrayUnion, arrayRemove } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
+import { arrayUnion, arrayRemove, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 import { sendPasswordResetEmail } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
 import { DeveloperActions } from '../modules/developer/developerActions.js';
 import { IntegrationsActions } from '../modules/integrations/integrationsActions.js';
@@ -68,11 +67,9 @@ export const AppController = {
         this._isInitializing = true;
 
         try {
-            // 1. التحقق من التوثيق (Gate)
             const isAuthSafe = await this.setupAuthGate();
             if (!isAuthSafe) return; 
 
-            // 2. إعداد الواجهة والمستمعين
             AdminUI?.initTheme?.();
             this.setupEventBusListeners();
             AdminRender?.initListeners?.(); 
@@ -82,7 +79,6 @@ export const AppController = {
                 AdminUI.onResize();
             }
             
-            // 3. جلب البيانات المركزية
             if (AdminData?.loadData) {
                 try {
                     await AdminData.loadData(auth?.currentUser?.uid); 
@@ -92,13 +88,9 @@ export const AppController = {
                     return; 
                 }
 
-                // 4. تهيئة الرسومات بعد ضمان نجاح البيانات
                 RenderHelpers?.init?.(AdminData.data);
-                
-                // 🚀 تمت إزالة updateBadges المكرر للاعتماد على جلب لوحة القيادة الذكي
                 AdminRender?.updateProfileUI?.();
                 
-                // 5. حساب عدد الـ KYC مع الاستفادة القصوى من kycPendingUsers كمصدر أساسي
                 const pendingKycCount = Math.max(
                     (AdminData.data.kycPendingUsers || []).length,
                     (AdminData.data.users || []).filter(u => u.kycStatus === 'pending').length
@@ -108,10 +100,8 @@ export const AppController = {
                 }
             }
             
-            // 6. الملاحة للصفحة الرئيسية (Dashboard)
             this.nav?.('dash', null);
             
-            // 7. مستمع التزامن الأمني بين التبويبات (يرصد تسجيل الخروج فقط دون استنزاف القراءات)
             window.addEventListener('storage', (e) => {
                 if (e.key === 'telecard_admin_auth' && !e.newValue) {
                     window.location.replace('login.html');
@@ -120,7 +110,6 @@ export const AppController = {
 
             this.isInitialized = true;
 
-            // 8. إعداد إشعارات الدفع (FCM) بعد استقرار الواجهة
             setTimeout(() => {
                 this.setupAdminPushNotifications();
                 if (AdminUI?.showAdminPushPrompt) AdminUI.showAdminPushPrompt();
@@ -213,17 +202,18 @@ export const AppController = {
             catch (e) { console.error("خطأ في تسجيل الخروج السحابي:", e); }
         }
         try {
-    if (window.indexedDB && window.indexedDB.databases) {
-        window.indexedDB.databases().then(dbs => {
-            dbs.forEach(db => {
-                if (db.name && db.name.includes('firestore')) window.indexedDB.deleteDatabase(db.name);
-            });
-        }).catch(() => {});
-    }
-} catch (e) {}
+            if (window.indexedDB && window.indexedDB.databases) {
+                window.indexedDB.databases().then(dbs => {
+                    dbs.forEach(db => {
+                        if (db.name && db.name.includes('firestore')) window.indexedDB.deleteDatabase(db.name);
+                    });
+                }).catch(() => {});
+            }
+        } catch (e) {}
         
         window.location.replace('login.html');
     },
+
     setupEventBusListeners: function() {
         EventBus.on('req-logout', () => this.logoutAdmin());
         EventBus.on('req-navigate', (data) => this.nav?.(data.page, data.btnEl));
@@ -256,9 +246,10 @@ export const AppController = {
         EventBus.on('req-save-admin-prefs', () => this.saveAdminPreferences());
 
         EventBus.on('req-save-system', () => this.saveSystem());
-EventBus.on('req-force-sync-pricing', () => this.forceSyncPricingCache());
-EventBus.on('req-save-admin-profile', (payloadData) => this.saveAdminProfile(payloadData));
-EventBus.on('req-reset-admin-password', () => this.resetAdminPassword());    EventBus.on('req-toggle-system', (data) => this.confirmSystemToggle?.(data.type, data.element));
+        EventBus.on('req-force-sync-pricing', () => this.forceSyncPricingCache());
+        EventBus.on('req-save-admin-profile', (payloadData) => this.saveAdminProfile(payloadData));
+        EventBus.on('req-reset-admin-password', () => this.resetAdminPassword());    
+        EventBus.on('req-toggle-system', (data) => this.confirmSystemToggle?.(data.type, data.element));
         EventBus.on('req-save-support', () => this.saveSupportSettings?.());
         EventBus.on('req-save-terms', () => this.saveTerms?.());
         EventBus.on('req-auto-save-settings', () => { MarketingController.autoSaveSettings?.(); });
@@ -284,7 +275,7 @@ EventBus.on('req-reset-admin-password', () => this.resetAdminPassword());    Eve
                 const utcStartOfDay = Date.UTC(d.getFullYear(), d.getMonth(), d.getDate());
                 if (data.type === 'start') this.filters[data.section].start = utcStartOfDay;
                 else if (data.type === 'end') this.filters[data.section].end = utcStartOfDay + 86399999;
-                document.querySelectorAll(`.qf-btn[data-section="${data.section}"]`).forEach(btn => btn.classList.remove('active', 'border-gold', 'text-gold'));
+                document.querySelectorAll(`.qf-btn[data-section="${data.section}"]`).forEach(btn => btn.classList.remove('active'));
                 this.applyFilters(data.section);
             }
         });
@@ -316,14 +307,8 @@ EventBus.on('req-reset-admin-password', () => this.resetAdminPassword());    Eve
             this.finishAction(data.renderEvent, data.modalId, data.logAction, data.logDetails, data.toastMsg, data.toastType);
         });
         
+        // 🚀 توجيه موحد ونقي عبر مصفوفة الموجهات المركزية دون شروط التفافية
         EventBus.on('action-triggered', async (data) => {
-            if (data.action === 'switch-notifs-tab') { this.switchNotifsTab(data.tab); return; }
-            if (data.action === 'save-about-us') { this.saveAboutUs(); return; }
-            if (data.action === 'save-social-links') { this.saveSocialLinks(); return; } 
-            if (data.action === 'add-social-link') { this.addSocialLinkRow(); return; } 
-            if (data.action === 'filter-reviews') { this.renderComplaints(); return; }
-            if (data.action === 'reply-complaint') { this.replyToComplaint(data.id); return; }
-
             const routers = getSystemRouters();
             if (routers[data.action]) await routers[data.action](data);
             else console.warn(`⚠️ حدث غير مبرمج في النظام: ${data.action}`);
@@ -370,7 +355,6 @@ EventBus.on('req-reset-admin-password', () => this.resetAdminPassword());    Eve
         AdminUI?.clearAllSearchAndFiltersUI?.(); 
     },
 
-    // 🚀 [الإصلاح المعماري 3] - توحيد الفلاتر لحل مشكلة السباق بين الـ Timers والاستدعاءات المباشرة
     applyFilters: async function(section) {
         if (!this.filters) this.filters = {};
         if (!this.filters[section]) this.filters[section] = { search: '', start: null, end: null };
@@ -423,25 +407,40 @@ EventBus.on('req-reset-admin-password', () => this.resetAdminPassword());    Eve
         this.updateState({ filters: this.filters });
         
         document.querySelectorAll(`.qf-btn[data-section="${section}"]`).forEach(btn => {
-            btn.classList.remove('active', 'border-gold', 'text-gold');
+            btn.classList.remove('active');
         });
         const activeBtn = document.querySelector(`.qf-btn[data-section="${section}"][data-range="${range}"]`);
-        if (activeBtn) activeBtn.classList.add('active', 'border-gold', 'text-gold');
+        if (activeBtn) activeBtn.classList.add('active');
         
         AdminUI?.updateQuickDateUI?.(null, null, section);
-
-this.applyFilters(section);    },
+        this.applyFilters(section);
+    },
 
     navWithFilter: function(section, status, source = null) {
-        this.nav(section);
-        setTimeout(() => {
-            if (source && section === 'orders') {
-                EventBus.emit('action-triggered', { action: 'filter-orders-source', val: source });
-            } else if (status && section !== 'users') {
-                EventBus.emit('action-triggered', { action: `filter-${section}`, val: status });
+    if (window.innerWidth < 992) { AdminUI?.closeSidebar?.(); }
+    this.clearAllSearchAndFilters();
+    AdminUI?.switchSystemView?.(section);
+    
+    requestAnimationFrame(() => {
+        if (section === 'orders') {
+            if (source) {
+                AdminRender?.OrdersRender?.filterBySource?.(source);
+            } else if (status) {
+                AdminRender?.OrdersRender?.filterByTab?.(status, null);
+            } else {
+                EventBus.emit('req-render-orders');
             }
-        }, 120);
-    },
+        } else if (section === 'deposits') {
+            if (status) {
+                AdminRender?.FinanceRender?.filterByTab?.(status, null);
+            } else {
+                EventBus.emit('req-render-deposits');
+            }
+        } else {
+            this.nav(section);
+        }
+    });
+},
 
     nav: async function(id, el) {
         if (window.innerWidth < 992) { AdminUI?.closeSidebar?.(); }
@@ -452,8 +451,8 @@ this.applyFilters(section);    },
             if (['rates', 'tiers', 'ads', 'sys', 'terms'].includes(id)) { AdminUI?.setupSettingsViews?.(id, this.data); }
             if (id === 'sys') { this.renderFirewallBlacklist(); }
             if (id === 'ads') { this.hydrateAdsSection(); }
-if (id === 'coupons') { AdminUI?.MarketingUI?.switchPromoTab?.('coupons', document.querySelector('#tabs-promotions [data-tab="coupons"]')); }
-if (id === 'notifs') { this.switchNotifsTab('alerts'); }
+            if (id === 'coupons') { AdminUI?.MarketingUI?.switchPromoTab?.('coupons', document.querySelector('#tabs-promotions [data-tab="coupons"]')); }
+            if (id === 'notifs') { this.switchNotifsTab('alerts'); }
             const renderMap = {
                 'dash': 'req-render-dash', 'sales': 'req-render-sales', 'deposits': 'req-render-deposits',
                 'orders': 'req-render-orders', 'products': 'req-render-prods', 'payments': 'req-render-payments',
@@ -471,6 +470,7 @@ if (id === 'notifs') { this.switchNotifsTab('alerts'); }
 
     hydrateAdsSection: function() {
         const settings = this.data.settings || {};
+        const sys = this.data.system || {};
         const safeSet = (id, val) => { const el = document.getElementById(id); if(el) el.value = val; };
         const safeCheck = (id, checked) => { const el = document.getElementById(id); if(el) el.checked = !!checked; };
         
@@ -481,38 +481,37 @@ if (id === 'notifs') { this.switchNotifsTab('alerts'); }
                 if (url && url.trim() !== '') {
                     img.src = url;
                     img.classList.remove('hide-element');
-                    img.style.display = 'block';
                     wrap.classList.add('has-img'); 
                 } else {
                     img.src = '';
                     img.classList.add('hide-element');
-                    img.style.display = 'none';
                     wrap.classList.remove('has-img');
                 }
             }
         };
 
-        safeImgSet('store-logo-wrap', 'store-logo-preview', settings.storeLogo || this.data.system?.storeLogo);
-        safeImgSet('store-logo-light-wrap', 'store-logo-light-preview', settings.storeLogoLight || this.data.system?.storeLogoLight);
-        safeImgSet('store-favicon-wrap', 'store-favicon-preview', settings.storeFavicon || this.data.system?.storeFavicon);
+        safeImgSet('store-logo-wrap', 'store-logo-preview', settings.storeLogo || sys.storeLogo);
+        safeImgSet('store-logo-light-wrap', 'store-logo-light-preview', settings.storeLogoLight || sys.storeLogoLight);
+        safeImgSet('store-favicon-wrap', 'store-favicon-preview', settings.storeFavicon || sys.storeFavicon);
         safeSet('store-about-us', settings.aboutUs || '');
-        safeSet('store-name-input', settings.storeName || '');
-        safeSet('store-name-weight', settings.storeNameWeight || '900');
-        safeSet('store-color-type', settings.storeColorType || 'solid');
-        safeSet('store-color-1', settings.storeColor1 || '#ffffff');
-        safeSet('store-color-2', settings.storeColor2 || '#FFD700');
-        safeCheck('store-name-shadow', settings.storeNameShadow);
+        safeSet('store-name-input', settings.storeName || sys.storeName || '');
+        safeSet('store-name-weight', settings.storeNameWeight || sys.nameWeight || '900');
+        safeSet('store-color-type', settings.storeColorType || sys.nameColorType || 'solid');
+        safeSet('store-color-1', settings.storeColor1 || sys.nameColor1 || '#ffffff');
+        safeSet('store-color-2', settings.storeColor2 || sys.nameColor2 || '#FFD700');
+        safeCheck('store-name-shadow', settings.storeNameShadow ?? sys.nameShadow);
         
+        const logoSize = settings.storeLogoSize || sys.logoSize || 36;
         const sizeEl = document.getElementById('store-logo-size');
         if (sizeEl) {
-            sizeEl.value = settings.storeLogoSize || 36;
+            sizeEl.value = logoSize;
             const sizeValEl = document.getElementById('logo-size-val');
-            if (sizeValEl) sizeValEl.innerText = `${settings.storeLogoSize || 36}px`;
+            if (sizeValEl) sizeValEl.innerText = `${logoSize}px`;
         }
 
-        safeSet('promo-text', settings.tickerText || '');
-        safeSet('promo-speed', settings.tickerSpeed || 'horizontal-normal');
-        safeSet('slider-time', settings.sliderTime || 3);
+        safeSet('promo-text', settings.tickerText || settings.promoText || '');
+        safeSet('promo-speed', settings.tickerSpeed || settings.promoAnim || 'horizontal-normal');
+        safeSet('slider-time', settings.sliderTime || settings.sliderDuration || 3);
         safeSet('slider-transition', settings.sliderTransition || 'fade');
         
         safeSet('social-desc', settings.socialDesc || settings.socialLinks?.desc || '');
@@ -520,7 +519,7 @@ if (id === 'notifs') { this.switchNotifsTab('alerts'); }
         const container = document.getElementById('social-links-container');
         if (container) {
             container.innerHTML = ''; 
-            const linksList = Array.isArray(settings.socialLinksList) ? settings.socialLinksList : [];
+            const linksList = Array.isArray(settings.socialLinksList) ? [...settings.socialLinksList] : [];
             
             if (settings.socialLinks && !Array.isArray(settings.socialLinks) && linksList.length === 0) {
                 if (settings.socialLinks.whatsapp) linksList.push({icon: 'fa-whatsapp', name: 'مجتمع الواتساب', url: settings.socialLinks.whatsapp});
@@ -535,39 +534,42 @@ if (id === 'notifs') { this.switchNotifsTab('alerts'); }
                 linksList.forEach(link => this.addSocialLinkRow(link));
             }
         }
-
-        if (typeof EventBus !== 'undefined') EventBus.emit('action-triggered', { action: 'update-brand' });
-    },
+AdminUI?.toggleColorType?.();
+AdminUI?.updateBrandPreview?.();
+AdminUI?.MarketingUI?.updateTickerPreviewUI?.();
+},
 
     addSocialLinkRow: function(linkData = { icon: 'fa-link', name: '', url: '' }) {
         const container = document.getElementById('social-links-container');
         if (!container) return;
 
         const row = document.createElement('div');
-        row.className = 'social-dynamic-row d-flex gap-2 align-items-center p-10';
-        row.style.cssText = 'background: var(--bg-body); border: 1px solid var(--border-color); border-radius: 8px;';
+        row.className = 'social-link-card';
         
         row.innerHTML = `
-            <select class="form-input mb-0 flex-1 dyn-social-icon">
-                <option value="fa-whatsapp" ${linkData.icon === 'fa-whatsapp' ? 'selected' : ''}>واتساب</option>
-                <option value="fa-telegram" ${linkData.icon === 'fa-telegram' ? 'selected' : ''}>تلغرام</option>
-                <option value="fa-facebook" ${linkData.icon === 'fa-facebook' ? 'selected' : ''}>فيسبوك</option>
-                <option value="fa-instagram" ${linkData.icon === 'fa-instagram' ? 'selected' : ''}>انستغرام</option>
-                <option value="fa-x-twitter" ${linkData.icon === 'fa-x-twitter' ? 'selected' : ''}>تويتر (X)</option>
-                <option value="fa-youtube" ${linkData.icon === 'fa-youtube' ? 'selected' : ''}>يوتيوب</option>
-                <option value="fa-tiktok" ${linkData.icon === 'fa-tiktok' ? 'selected' : ''}>تيك توك</option>
-                <option value="fa-discord" ${linkData.icon === 'fa-discord' ? 'selected' : ''}>ديسكورد</option>
-                <option value="fa-link" ${linkData.icon === 'fa-link' ? 'selected' : ''}>رابط عام</option>
-            </select>
-            <input type="text" class="form-input mb-0 flex-1 dyn-social-name" placeholder="الاسم (مثال: مجتمع واتساب)" value="${Utils.escapeHTML(linkData.name)}">
-            <input type="url" class="form-input mb-0 flex-2 num-en dyn-social-url" dir="ltr" placeholder="https://..." value="${Utils.escapeHTML(linkData.url)}">
-            <button type="button" class="btn btn-red btn-sm px-10 dyn-social-del-btn" title="حذف"><i class="fa-solid fa-trash"></i></button>
+            <div class="flex-between gap-2 w-100">
+                <select class="form-input mb-0 flex-1 dyn-social-icon select-shared">
+                    <option value="fa-whatsapp" ${linkData.icon === 'fa-whatsapp' ? 'selected' : ''}>واتساب</option>
+                    <option value="fa-telegram" ${linkData.icon === 'fa-telegram' ? 'selected' : ''}>تلغرام</option>
+                    <option value="fa-facebook" ${linkData.icon === 'fa-facebook' ? 'selected' : ''}>فيسبوك</option>
+                    <option value="fa-instagram" ${linkData.icon === 'fa-instagram' ? 'selected' : ''}>انستغرام</option>
+                    <option value="fa-x-twitter" ${linkData.icon === 'fa-x-twitter' ? 'selected' : ''}>تويتر (X)</option>
+                    <option value="fa-youtube" ${linkData.icon === 'fa-youtube' ? 'selected' : ''}>يوتيوب</option>
+                    <option value="fa-tiktok" ${linkData.icon === 'fa-tiktok' ? 'selected' : ''}>تيك توك</option>
+                    <option value="fa-discord" ${linkData.icon === 'fa-discord' ? 'selected' : ''}>ديسكورد</option>
+                    <option value="fa-link" ${linkData.icon === 'fa-link' ? 'selected' : ''}>رابط عام</option>
+                </select>
+                <input type="text" class="form-input mb-0 flex-2 dyn-social-name" placeholder="الاسم (مثال: مجتمع واتساب)" value="${Utils.escapeHTML(linkData.name)}">
+                <button type="button" class="btn btn-compact btn-outline-danger dyn-social-del-btn interactive-scale" title="حذف"><i class="fa-solid fa-trash"></i></button>
+            </div>
+            <div class="w-100">
+                <input type="url" class="form-input mb-0 w-100 num-en font-numeric dyn-social-url" dir="ltr" lang="en" placeholder="https://..." value="${Utils.escapeHTML(linkData.url)}">
+            </div>
         `;
         row.querySelector('.dyn-social-del-btn')?.addEventListener('click', () => row.remove());
         container.appendChild(row);
     },
 
-    // 🛡️ التحديث المطلوب: استبدال دوال escapeHTML لحفظ النصوص خام في قاعدة البيانات
     saveSocialLinks: async function() {
         if (AdminUI?.toggleLoader) AdminUI.toggleLoader(true, 'جاري حفظ الروابط...');
         try {
@@ -576,7 +578,7 @@ if (id === 'notifs') { this.switchNotifsTab('alerts'); }
             const desc = document.getElementById('social-desc')?.value.trim() || '';
             const links = [];
             
-            for (const row of document.querySelectorAll('.social-dynamic-row')) {
+            for (const row of document.querySelectorAll('.social-link-card')) {
                 const icon = (row.querySelector('.dyn-social-icon')?.value || 'fa-link').trim();
                 const name = row.querySelector('.dyn-social-name')?.value.trim();
                 const url = row.querySelector('.dyn-social-url')?.value.trim();
@@ -586,11 +588,7 @@ if (id === 'notifs') { this.switchNotifsTab('alerts'); }
                         AdminUI?.showToast(`الرابط (${name}) يجب أن يبدأ بـ https:// أو http://`, 'error');
                         return;
                     }
-                    links.push({
-                        icon: icon,
-                        name: name,
-                        url: url.trim() 
-                    });
+                    links.push({ icon: icon, name: name, url: url.trim() });
                 }
             }
 
@@ -616,10 +614,9 @@ if (id === 'notifs') { this.switchNotifsTab('alerts'); }
             };
 
             if (type === 'dash' || !type) {
-                // 🚀 تمت إزالة updateBadges(true) لمنع القراءة المزدوجة
                 EventBus.emit('req-render-dash', { force: true });
             } else if (type === 'sales') {
-                EventBus.emit('req-render-sales');
+                EventBus.emit('req-render-sales', { force: true });
             } else if (type === 'orders') {
                 AdminData.cursors.orders = null;
                 AdminData.data.orders = [];
@@ -638,13 +635,14 @@ if (id === 'notifs') { this.switchNotifsTab('alerts'); }
                 AdminData.data.usersMap = {};
                 await AdminRender?.loadMoreUsers?.();
             } else if (type === 'logs') {
-    const rLogs = await FirebaseAdapter.callFunction('adminGetLogsList', { limit: 50 });
-    if (rLogs && rLogs.success) {
-        AdminData.data.logs = Array.isArray(rLogs.data) ? rLogs.data : [];
-        AdminData.data.systemErrors = Array.isArray(rLogs.systemErrors) ? rLogs.systemErrors : [];
-        AdminData.cursors.logs = rLogs.pagination || null;
-    }
-    EventBus.emit('req-render-logs');            } else if (type === 'wallets') {
+                const rLogs = await FirebaseAdapter.callFunction('adminGetLogsList', { limit: 50 });
+                if (rLogs && rLogs.success) {
+                    AdminData.data.logs = Array.isArray(rLogs.data) ? rLogs.data : [];
+                    AdminData.data.systemErrors = Array.isArray(rLogs.systemErrors) ? rLogs.systemErrors : [];
+                    AdminData.cursors.logs = rLogs.pagination || null;
+                }
+                EventBus.emit('req-render-logs');            
+            } else if (type === 'wallets') {
                 await AdminData.fetchWalletsLiquidityAsync();
                 EventBus.emit('req-render-wallets');
             } else if (type === 'rates') {
@@ -676,6 +674,7 @@ if (id === 'notifs') { this.switchNotifsTab('alerts'); }
             } else if (type === 'complaints') {
                 const rReviews = await FirebaseAdapter.getAll('telecard_reviews', 500);
                 syncStaticCol('reviews', rReviews);
+                AdminData._reviewsLoaded = true;
                 this.renderComplaints();
             } else if (type === 'integrations') {
                 const rSuppliers = await FirebaseAdapter.getAll('telecard_suppliers');
@@ -713,7 +712,6 @@ if (id === 'notifs') { this.switchNotifsTab('alerts'); }
         const deviceContainer = document.getElementById('global-banned-devices-container');
         if (!ipContainer || !deviceContainer) return;
 
-        // 🛡️ [الجدار الناري المحكم]: قراءة قوائم الحظر من active_configs
         const activeConfigs = AdminData.data.activeConfigs || {};
         const bannedIps = Array.isArray(activeConfigs.bannedIps) ? activeConfigs.bannedIps : (Array.isArray(AdminData.data.settings?.bannedIps) ? AdminData.data.settings.bannedIps : []);
         const bannedDevices = Array.isArray(activeConfigs.bannedDevices) ? activeConfigs.bannedDevices : (Array.isArray(AdminData.data.settings?.bannedDevices) ? AdminData.data.settings.bannedDevices : []);
@@ -724,11 +722,11 @@ if (id === 'notifs') { this.switchNotifsTab('alerts'); }
             ipContainer.innerHTML = bannedIps.map(ip => {
                 const safeIp = Utils.escapeHTML(ip);
                 return `
-                <div class="badge-tag bg-danger text-white num-en d-flex align-items-center gap-2" dir="ltr">
+                <div class="v-stat-chip chip-danger num-en font-numeric" dir="ltr" lang="en">
                     ${safeIp} 
-                    <i class="fa-solid fa-xmark clickable ms-2" data-action="remove-global-ban-ip" data-ip="${safeIp}" title="فك الحظر"></i>
+                    <i class="fa-solid fa-xmark interactive-scale ms-1" data-action="remove-global-ban-ip" data-ip="${safeIp}" title="فك الحظر"></i>
                 </div>
-            `}).join('');
+            `;}).join('');
         }
 
         if (bannedDevices.length === 0) {
@@ -738,11 +736,11 @@ if (id === 'notifs') { this.switchNotifsTab('alerts'); }
                 const safeDev = Utils.escapeHTML(dev);
                 const shortDev = Utils.escapeHTML(String(dev).substring(0, 10));
                 return `
-                <div class="badge-tag bg-info text-white num-en d-flex align-items-center gap-2" dir="ltr">
+                <div class="v-stat-chip chip-info num-en font-numeric" dir="ltr" lang="en">
                     ${shortDev}... 
-                    <i class="fa-solid fa-xmark clickable ms-2" data-action="remove-global-ban-device" data-device="${safeDev}" title="فك الحظر"></i>
+                    <i class="fa-solid fa-xmark interactive-scale ms-1" data-action="remove-global-ban-device" data-device="${safeDev}" title="فك الحظر"></i>
                 </div>
-            `}).join('');
+            `;}).join('');
         }
     },
 
@@ -766,7 +764,6 @@ if (id === 'notifs') { this.switchNotifsTab('alerts'); }
         
         if (AdminUI.toggleLoader) AdminUI.toggleLoader(true, 'جاري حظر الـ IP سحابياً...');
         try {
-            // 🛡️ استخدام set (مع merge: true) لضمان عملها حتى لو لم تكن وثيقة active_configs منشأة بعد
             await FirebaseAdapter.set('telecard_system', 'active_configs', {
                 bannedIps: arrayUnion(newIp)
             });
@@ -792,61 +789,61 @@ if (id === 'notifs') { this.switchNotifsTab('alerts'); }
     },
     
     removeGlobalBanIp: async function(ip) {
-            if (!AdminUI) return;
-            if (!await AdminUI.showConfirm(`هل أنت متأكد من فك الحظر عن الشبكة (${ip})؟`, 'إزالة من القائمة السوداء')) return;
-            
-            if (AdminUI.toggleLoader) AdminUI.toggleLoader(true, 'جاري فك الحظر...');
-            try {
-                await FirebaseAdapter.set('telecard_system', 'active_configs', {
-                    bannedIps: arrayRemove(ip)
-                });
-                
-                if (AdminData.data.activeConfigs && Array.isArray(AdminData.data.activeConfigs.bannedIps)) {
-                    AdminData.data.activeConfigs.bannedIps = AdminData.data.activeConfigs.bannedIps.filter(item => item !== ip);
-                }
-                if (AdminData.data.settings && Array.isArray(AdminData.data.settings.bannedIps)) {
-                    AdminData.data.settings.bannedIps = AdminData.data.settings.bannedIps.filter(item => item !== ip);
-                }
-                this.renderFirewallBlacklist();
-                
-                AdminUI.showToast(`تم فك الحظر عن الـ IP بنجاح`, 'success');
-                if (AdminData.addLog) AdminData.addLog('FIREWALL_REMOVE_IP', `إزالة IP من القائمة السوداء: ${ip}`);
-            } catch (e) {
-                AdminUI.showToast('حدث خطأ أثناء فك الحظر', 'error');
-            } finally {
-                if (AdminUI.toggleLoader) AdminUI.toggleLoader(false);
-            }
-        },
+        if (!AdminUI) return;
+        if (!await AdminUI.showConfirm(`هل أنت متأكد من فك الحظر عن الشبكة (${ip})؟`, 'إزالة من القائمة السوداء')) return;
         
-        removeGlobalBanDevice: async function(device) {
-            if (!AdminUI) return;
-            if (!await AdminUI.showConfirm(`هل أنت متأكد من فك الحظر عن هذا الجهاز؟
-(${device})`, 'إزالة من القائمة السوداء')) return;
+        if (AdminUI.toggleLoader) AdminUI.toggleLoader(true, 'جاري فك الحظر...');
+        try {
+            await FirebaseAdapter.set('telecard_system', 'active_configs', {
+                bannedIps: arrayRemove(ip)
+            });
             
-            if (AdminUI.toggleLoader) AdminUI.toggleLoader(true, 'جاري فك الحظر...');
-            try {
-                await FirebaseAdapter.set('telecard_system', 'active_configs', {
-                    bannedDevices: arrayRemove(device)
-                });
-                
-                if (AdminData.data.activeConfigs && Array.isArray(AdminData.data.activeConfigs.bannedDevices)) {
-                    AdminData.data.activeConfigs.bannedDevices = AdminData.data.activeConfigs.bannedDevices.filter(item => item !== device);
-                }
-                if (AdminData.data.settings && Array.isArray(AdminData.data.settings.bannedDevices)) {
-                    AdminData.data.settings.bannedDevices = AdminData.data.settings.bannedDevices.filter(item => item !== device);
-                }
-                this.renderFirewallBlacklist();
-                
-                AdminUI.showToast(`تم فك الحظر عن الجهاز بنجاح`, 'success');
-                if (AdminData.addLog) AdminData.addLog('FIREWALL_REMOVE_DEVICE', `إزالة جهاز من القائمة السوداء`);
-            } catch (e) {
-                AdminUI.showToast('حدث خطأ أثناء فك الحظر', 'error');
-            } finally {
-                if (AdminUI.toggleLoader) AdminUI.toggleLoader(false);
+            if (AdminData.data.activeConfigs && Array.isArray(AdminData.data.activeConfigs.bannedIps)) {
+                AdminData.data.activeConfigs.bannedIps = AdminData.data.activeConfigs.bannedIps.filter(item => item !== ip);
             }
-        },    forceSyncPricingCache: async function() {
-        if (AdminUI && await AdminUI.showConfirm(`هل أنت متأكد من إعادة بناء كاش التسعير والبوابات السحابي؟
-استخدم هذا الخيار (كزر طوارئ) فقط إذا لاحظت عدم تحديث الأسعار في واجهة المتجر.`, 'ترميم الكاش السحابي')) {
+            if (AdminData.data.settings && Array.isArray(AdminData.data.settings.bannedIps)) {
+                AdminData.data.settings.bannedIps = AdminData.data.settings.bannedIps.filter(item => item !== ip);
+            }
+            this.renderFirewallBlacklist();
+            
+            AdminUI.showToast(`تم فك الحظر عن الـ IP بنجاح`, 'success');
+            if (AdminData.addLog) AdminData.addLog('FIREWALL_REMOVE_IP', `إزالة IP من القائمة السوداء: ${ip}`);
+        } catch (e) {
+            AdminUI.showToast('حدث خطأ أثناء فك الحظر', 'error');
+        } finally {
+            if (AdminUI.toggleLoader) AdminUI.toggleLoader(false);
+        }
+    },
+    
+    removeGlobalBanDevice: async function(device) {
+        if (!AdminUI) return;
+        if (!await AdminUI.showConfirm(`هل أنت متأكد من فك الحظر عن هذا الجهاز؟\n(${device})`, 'إزالة من القائمة السوداء')) return;
+        
+        if (AdminUI.toggleLoader) AdminUI.toggleLoader(true, 'جاري فك الحظر...');
+        try {
+            await FirebaseAdapter.set('telecard_system', 'active_configs', {
+                bannedDevices: arrayRemove(device)
+            });
+            
+            if (AdminData.data.activeConfigs && Array.isArray(AdminData.data.activeConfigs.bannedDevices)) {
+                AdminData.data.activeConfigs.bannedDevices = AdminData.data.activeConfigs.bannedDevices.filter(item => item !== device);
+            }
+            if (AdminData.data.settings && Array.isArray(AdminData.data.settings.bannedDevices)) {
+                AdminData.data.settings.bannedDevices = AdminData.data.settings.bannedDevices.filter(item => item !== device);
+            }
+            this.renderFirewallBlacklist();
+            
+            AdminUI.showToast(`تم فك الحظر عن الجهاز بنجاح`, 'success');
+            if (AdminData.addLog) AdminData.addLog('FIREWALL_REMOVE_DEVICE', `إزالة جهاز من القائمة السوداء`);
+        } catch (e) {
+            AdminUI.showToast('حدث خطأ أثناء فك الحظر', 'error');
+        } finally {
+            if (AdminUI.toggleLoader) AdminUI.toggleLoader(false);
+        }
+    },    
+
+    forceSyncPricingCache: async function() {
+        if (AdminUI && await AdminUI.showConfirm(`هل أنت متأكد من إعادة بناء كاش التسعير والبوابات السحابي؟\nاستخدم هذا الخيار (كزر طوارئ) فقط إذا لاحظت عدم تحديث الأسعار في واجهة المتجر.`, 'ترميم الكاش السحابي')) {
             if (AdminUI?.toggleLoader) AdminUI.toggleLoader(true, 'جاري ترميم الكاش السحابي للأسعار والبوابات... (قد تستغرق هذه العملية عدة دقائق، يرجى عدم إغلاق الصفحة)');
             try {
                 const result = await FirebaseAdapter.callFunction('adminForceSyncPricing', {});
@@ -862,7 +859,6 @@ if (id === 'notifs') { this.switchNotifsTab('alerts'); }
         }
     },
 
-    // 🛡️ التحديث المطلوب: استبدال دوال escapeHTML لحفظ النصوص خام في قاعدة البيانات
     saveSystem: async function() { 
         if (AdminUI?.toggleLoader) AdminUI.toggleLoader(true, 'جاري حفظ إعدادات النظام...');
         try {
@@ -897,9 +893,8 @@ if (id === 'notifs') { this.switchNotifsTab('alerts'); }
     saveSupportSettings: async function() { 
         if (AdminUI?.toggleLoader) AdminUI.toggleLoader(true, 'جاري حفظ إعدادات الدعم...');
         try {
-            const activeIcon = document.querySelector('.is-opt.active'); 
-            const activeAnim = document.querySelector('.anim-opt.active'); 
-            
+            const activeIcon = document.querySelector('#icon-selector .is-opt.active');
+            const activeAnim = document.querySelector('#animation-selector .anim-opt.active');
             const rawSuppLink = String(Utils.getVal('supp-link') || '').trim();
             const isSafeSuppVal = !rawSuppLink || /^https?:\/\//i.test(rawSuppLink) || /^\+?[0-9\s-]{7,18}$/.test(rawSuppLink);
             if (!isSafeSuppVal) {
@@ -919,7 +914,6 @@ if (id === 'notifs') { this.switchNotifsTab('alerts'); }
         }
     },
 
-    // 🛡️ التحديث المطلوب: إزالة escapeHTML لمنع التشفير المزدوج
     saveAboutUs: async function() {
         const aboutTextEl = document.getElementById('store-about-us');
         if (!aboutTextEl) return;
@@ -937,22 +931,49 @@ if (id === 'notifs') { this.switchNotifsTab('alerts'); }
         }
     },
 
-    switchNotifsTab: function(tabName) {
+    switchNotifsTab: async function(tabName) {
         const alertsCont = document.getElementById('notifs-alerts-container');
         const compCont = document.getElementById('notifs-complaints-container');
         const buttons = document.querySelectorAll('#tabs-support .main-tab-btn');
         
         if (buttons) buttons.forEach(btn => btn.classList.remove('active'));
-        const activeBtn = document.querySelector(`[data-tab="${tabName}"]`);
+        const activeBtn = document.querySelector(`#tabs-support [data-tab="${tabName}"]`) || document.querySelector(`[data-tab="${tabName}"]`);
         if (activeBtn) activeBtn.classList.add('active');
-
+        
         if (tabName === 'alerts') {
             if (alertsCont) alertsCont.classList.remove('hide-element');
             if (compCont) compCont.classList.add('hide-element');
+            
+            const s = this.data?.settings || {};
+            const suppInput = document.getElementById('supp-link');
+            if (suppInput) suppInput.value = s.supportLink || '';
+            
+            const savedIcon = s.supportIcon || 'fa-whatsapp';
+            document.querySelectorAll('#icon-selector .is-opt').forEach(el => {
+                el.classList.toggle('active', el.dataset.val === savedIcon);
+            });
+            
+            const savedAnim = s.supportAnimation || 'none';
+            document.querySelectorAll('#animation-selector .anim-opt').forEach(el => {
+                el.classList.toggle('active', el.dataset.val === savedAnim);
+            });
         } else {
             if (alertsCont) alertsCont.classList.add('hide-element');
             if (compCont) compCont.classList.remove('hide-element');
-            this.renderComplaints(); 
+            
+            if (!AdminData._reviewsLoaded) {
+                const grid = document.getElementById('complaints-grid');
+                if (grid) grid.innerHTML = `<div class="empty-state"><i class="fa-solid fa-circle-notch fa-spin"></i><span>جاري جلب التقييمات والشكاوى من السيرفر...</span></div>`;
+                try {
+                    const rReviews = await FirebaseAdapter.getAll('telecard_reviews', 500);
+                    AdminData.data.reviews = Array.isArray(rReviews) ? rReviews.filter(Boolean) : [];
+                    AdminData._updateSnapshot?.('reviews');
+                    AdminData._reviewsLoaded = true;
+                } catch (e) {
+                    console.error("Failed to lazy-load reviews:", e);
+                }
+            }
+            this.renderComplaints();
         }
     },
 
@@ -966,11 +987,11 @@ if (id === 'notifs') { this.switchNotifsTab('alerts'); }
 
         let reviews = AdminData.data.reviews || [];
         
-        const pendingCount = reviews.filter(r => r.status === 'pending' && r.rating <= 2).length;
+        const pendingCount = reviews.filter(r => r.status === 'pending' && Number(r.rating) <= 2).length;
         if (badge) badge.innerText = pendingCount;
 
         if (filterVal === 'pending_bad') {
-            reviews = reviews.filter(r => r.status === 'pending' && r.rating <= 2);
+            reviews = reviews.filter(r => r.status === 'pending' && Number(r.rating) <= 2);
         } else if (filterVal === 'resolved') {
             reviews = reviews.filter(r => r.status === 'resolved');
         }
@@ -981,32 +1002,34 @@ if (id === 'notifs') { this.switchNotifsTab('alerts'); }
         }
 
         grid.innerHTML = reviews.sort((a,b) => RenderHelpers.parseUnifiedTime(b) - RenderHelpers.parseUnifiedTime(a)).map(r => {
+            const safeRating = Math.min(5, Math.max(0, Math.round(Number(r.rating) || 0)));
             const isResolved = r.status === 'resolved';
-            const isGood = r.rating >= 4;
+            const isGood = safeRating >= 4;
             const user = AdminData.data.usersMap?.[r.userId] || { name: r.userName || r.userFullName || 'عميل غير معروف' };
-            const borderColor = isGood ? 'border-success' : (isResolved ? 'resolved-complaint' : 'border-danger');
+            const cardStatus = isGood ? 'active' : (isResolved ? 'expired' : 'inactive');
+            const chipClass = isGood ? 'chip-success' : (isResolved ? 'chip-info' : 'chip-danger');
             
             return `
-            <div class="card ${borderColor}">
+            <div class="promo-card" data-status="${cardStatus}">
                 <div class="flex-between mb-10">
-                    <span class="fw-bold"><i class="fa-solid fa-user"></i> ${Utils.escapeHTML(user.name || user.fullName)}</span>
-                    <span class="badge-tag ${isGood ? 'bg-success' : (isResolved ? 'bg-info' : 'bg-danger')} text-white">
+                    <span class="fw-bold"><i class="fa-solid fa-user text-primary me-1"></i> ${Utils.escapeHTML(user.name || user.fullName)}</span>
+                    <span class="v-stat-chip ${chipClass}">
                         ${isGood ? '<i class="fa-solid fa-heart"></i> تقييم ممتاز' : (isResolved ? '<i class="fa-solid fa-check-double"></i> تمت المعالجة' : '<i class="fa-solid fa-clock"></i> بانتظار الرد')}
                     </span>
                 </div>
                 <div class="mb-10 fs-14">
-                    <span class="text-warning">${'<i class="fa-solid fa-star"></i>'.repeat(r.rating)}${'<i class="fa-regular fa-star"></i>'.repeat(5 - r.rating)}</span>
+                    <span class="text-warning">${'<i class="fa-solid fa-star"></i>'.repeat(safeRating)}${'<i class="fa-regular fa-star"></i>'.repeat(5 - safeRating)}</span>
                 </div>
-                ${(r.comment || r.text) ? `<p class="fs-13 text-muted mb-15 p-10" style="background: var(--bg-body); border-radius: 6px;">"${Utils.escapeHTML(r.comment || r.text)}"</p>` : ''}
+                ${(r.comment || r.text) ? `<p class="complaint-msg-box">"${Utils.escapeHTML(r.comment || r.text)}"</p>` : ''}
                 
                 ${isResolved ? 
-                `<div class="p-10 bg-success-10 text-success border-success-15" style="border-radius: 6px; font-size: 12px;">
+                `<div class="complaint-reply-box">
                     <i class="fa-solid fa-reply"></i> <b>رد الإدارة:</b> ${Utils.escapeHTML(r.adminReply)}
                 </div>` 
                 : (!isGood ? `
                 <div id="reply-box-${Utils.escapeHTML(r.id)}" class="mt-10">
                     <textarea id="reply-text-${Utils.escapeHTML(r.id)}" class="form-input mb-10" rows="2" placeholder="اكتب رسالة اعتذار للعميل أو كود خصم للتعويض..."></textarea>
-                    <button type="button" class="btn btn-primary w-100" data-action="reply-complaint" data-id="${Utils.escapeHTML(r.id)}">
+                    <button type="button" class="btn btn-primary w-100 interactive-scale" data-action="reply-complaint" data-id="${Utils.escapeHTML(r.id)}">
                         <i class="fa-solid fa-paper-plane"></i> إرسال الرد للعميل
                     </button>
                 </div>
@@ -1030,11 +1053,11 @@ if (id === 'notifs') { this.switchNotifsTab('alerts'); }
                 await FirebaseAdapter.updateDocument('telecard_reviews', reviewId, {
                     status: 'resolved',
                     adminReply: reply,
-                    resolvedAt: Date.now()
+                    resolvedAt: serverTimestamp()
                 });
             }
 
-            const review = AdminData.data.reviews.find(r => r.id === reviewId);
+            const review = (AdminData.data.reviews || []).find(r => String(r.id) === String(reviewId));
             if (review) {
                 review.status = 'resolved';
                 review.adminReply = reply;
@@ -1073,7 +1096,6 @@ if (id === 'notifs') { this.switchNotifsTab('alerts'); }
         }
     },
     
-    // 🛡️ التحديث المطلوب: إزالة escapeHTML من حفظ اسم المدير
     saveAdminProfile: async function(profileData) {
         const name = (profileData?.name || Utils.getVal('adm-name')).trim();
         const hasImg = profileData?.hasImg !== undefined ? profileData.hasImg : document.getElementById('adm-img-wrap')?.classList.contains('has-img');
@@ -1085,6 +1107,7 @@ if (id === 'notifs') { this.switchNotifsTab('alerts'); }
         try {
             let finalImg = '';
             const oldImgUrl = this.data.adminProfile?.img || null;
+            const fileInputEl = document.getElementById('adm-img-file');
             
             if (hasImg) {
                 if (AdminUI?.tempImg && AdminUI.tempImg.startsWith('data:image')) {
@@ -1103,8 +1126,8 @@ if (id === 'notifs') { this.switchNotifsTab('alerts'); }
                     }
                     
                     finalImg = await FirebaseAdapter.uploadImage(finalFileToUpload, 'admin', null, true);
-                } else if (profileData?.file || document.getElementById('adm-img-file')?.files?.[0]) {
-                    const fallbackFile = profileData?.file || document.getElementById('adm-img-file')?.files?.[0];
+                } else if (profileData?.file || fileInputEl?.files?.[0]) {
+                    const fallbackFile = profileData?.file || fileInputEl?.files?.[0];
                     const ext = fallbackFile.name.includes('.') ? fallbackFile.name.split('.').pop().toLowerCase() : 'jpg';
                     const customName = `admin_profile_${auth?.currentUser?.uid || Date.now()}.${ext}`;
                     
@@ -1129,6 +1152,11 @@ if (id === 'notifs') { this.switchNotifsTab('alerts'); }
             };
             
             await AdminData?.saveAdminProfile?.(auth?.currentUser?.uid);
+            if (fileInputEl) fileInputEl.value = '';
+            if (AdminUI) {
+                AdminUI.tempImg = null;
+                AdminUI.tempFile = null;
+            }
             EventBus.emit('req-update-profile-ui');
             AdminUI?.closeModal?.('profile');
             AdminUI?.showToast('تم حفظ الملف الشخصي بنجاح', 'success');
@@ -1165,47 +1193,48 @@ if (id === 'notifs') { this.switchNotifsTab('alerts'); }
             if (AdminUI?.toggleLoader) AdminUI.toggleLoader(false);
         }
     },
+    
     setupAdminPushNotifications: async function(forcePrompt = false) {
-    if (typeof window === 'undefined' || !window.Notification) return;
-    
-    if (forcePrompt && Notification.permission === 'default') {
-        const permission = await Notification.requestPermission();
-        if (permission !== 'granted') return;
-    }
-    
-    if (Notification.permission === 'granted') {
-        if (forcePrompt && AdminUI?.toggleLoader) {
-            AdminUI.toggleLoader(true, 'جاري ربط جهازك بغرفة العمليات...');
+        if (typeof window === 'undefined' || !window.Notification) return;
+        
+        if (forcePrompt && Notification.permission === 'default') {
+            const permission = await Notification.requestPermission();
+            if (permission !== 'granted') return;
         }
-        try {
-            const token = await FirebaseAdapter.requestFCMToken(VAPID_KEY);
-            
-            if (token) {
-                let currentTokens = Array.isArray(this.data.adminProfile?.fcmTokens) ? [...this.data.adminProfile.fcmTokens] : [];
-                if (!currentTokens.includes(token)) {
-                    currentTokens.push(token);
-                    if (currentTokens.length > 5) currentTokens = currentTokens.slice(-5);
-                    
-                    if (!this.data.adminProfile) this.data.adminProfile = {};
-                    this.data.adminProfile.fcmTokens = currentTokens;
-                    
-                    await AdminData.saveAdminProfile(auth?.currentUser?.uid);
-                    if (forcePrompt) {
-                        AdminUI?.showToast('تم تفعيل الإنذار الفوري على هذا الجهاز بنجاح! 🚀', 'success');
+        
+        if (Notification.permission === 'granted') {
+            if (forcePrompt && AdminUI?.toggleLoader) {
+                AdminUI.toggleLoader(true, 'جاري ربط جهازك بغرفة العمليات...');
+            }
+            try {
+                const token = await FirebaseAdapter.requestFCMToken(VAPID_KEY);
+                
+                if (token) {
+                    let currentTokens = Array.isArray(this.data.adminProfile?.fcmTokens) ? [...this.data.adminProfile.fcmTokens] : [];
+                    if (!currentTokens.includes(token)) {
+                        currentTokens.push(token);
+                        if (currentTokens.length > 5) currentTokens = currentTokens.slice(-5);
+                        
+                        if (!this.data.adminProfile) this.data.adminProfile = {};
+                        this.data.adminProfile.fcmTokens = currentTokens;
+                        
+                        await AdminData.saveAdminProfile(auth?.currentUser?.uid);
+                        if (forcePrompt) {
+                            AdminUI?.showToast('تم تفعيل الإنذار الفوري على هذا الجهاز بنجاح! 🚀', 'success');
+                        }
+                    } else if (forcePrompt) {
+                        AdminUI?.showToast('الرادار الفوري مفعّل ومربوط على هذا الجهاز بالفعل ✅', 'info');
                     }
-                } else if (forcePrompt) {
-                    AdminUI?.showToast('الرادار الفوري مفعّل ومربوط على هذا الجهاز بالفعل ✅', 'info');
+                }
+            } catch (e) {
+                console.warn('⚠️ فشل تفعيل إشعارات الإدارة:', e);
+            } finally {
+                if (forcePrompt && AdminUI?.toggleLoader) {
+                    AdminUI.toggleLoader(false);
                 }
             }
-        } catch (e) {
-            console.warn('⚠️ فشل تفعيل إشعارات الإدارة:', e);
-        } finally {
-            if (forcePrompt && AdminUI?.toggleLoader) {
-                AdminUI.toggleLoader(false);
-            }
         }
-    }
-},
+    },
 
     saveAdminPreferences: async function() {
         if (AdminUI?.toggleLoader) AdminUI.toggleLoader(true, 'جاري تحديث إعدادات غرفة العمليات...');
@@ -1244,35 +1273,16 @@ if (id === 'notifs') { this.switchNotifsTab('alerts'); }
         }
     },
 
-    // 🚀 [الإصلاح المعماري 3: Double Delete Confirm Fix] - نافذة التأكيد مخصصة للبنر فقط هنا لمنع التضارب
     delItem: async function(type, id) {
-        const strId = String(id);
-        
-        if (type === 'tier') return import('../modules/users/usersController.js').then(m => m.UsersController.deleteTier(strId));
-        
-        if (type === 'vault') return CatalogController.deleteVaultPool(strId);
-        if (type === 'country') return CatalogController.deleteCountry(strId);
-        if (type === 'cat') return CatalogController.deleteCategory(strId); 
-        if (type === 'prod') return CatalogController.deleteProduct(strId); 
-        if (type === 'coupon') return MarketingController.deleteCoupon(strId);
-        if (type === 'offer') return MarketingController.deleteOffer(strId);
-        
-        if (type === 'banner') {
-            if (AdminUI && !await AdminUI.showConfirm('هل أنت متأكد من حذف هذه اللافتة الإعلانية نهائياً؟')) return;
-            if (AdminUI?.toggleLoader) AdminUI.toggleLoader(true, 'جاري مسح البنر الإعلاني...');
-            try {
-                const bnr = this.data.banners.find(x => String(x.id) === strId);
-                if (bnr && bnr.img && typeof FirebaseAdapter.deleteImageByUrl === 'function') {
-                    try { await FirebaseAdapter.deleteImageByUrl(bnr.img); } catch(e){}
-                }
-                this.data.banners = this.data.banners.filter(x => String(x.id) !== strId);
-                await AdminData.saveBanners();
-                this.finishAction('req-render-banners', null, `DELETE_BANNER`, `تم حذف لافتة إعلانية`, 'تم الحذف بنجاح');
-            } catch (error) {
-                AdminUI?.showToast(error.message || 'فشل الحذف', 'error');
-            } finally {
-                if (AdminUI?.toggleLoader) AdminUI.toggleLoader(false);
-            }
-        }
-    }
+    const strId = String(id);
+    
+    if (type === 'tier') return import('../modules/users/usersController.js').then(m => m.UsersController.deleteTier(strId));
+    if (type === 'vault') return CatalogController.deleteVaultPool(strId);
+    if (type === 'country') return CatalogController.deleteCountry(strId);
+    if (type === 'cat') return CatalogController.deleteCategory(strId);
+    if (type === 'prod') return CatalogController.deleteProduct(strId);
+    if (type === 'coupon') return MarketingController.deleteCoupon(strId);
+    if (type === 'offer') return MarketingController.deleteOffer(strId);
+    if (type === 'banner') return MarketingController.deleteBanner(strId);
+}        
 };

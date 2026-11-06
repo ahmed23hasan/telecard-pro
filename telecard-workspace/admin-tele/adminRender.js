@@ -1,11 +1,11 @@
 // ============================================================================
-// 🖥️ موزع محرك الرسم (adminRender.js) - Enterprise V19.7 🚀
+// 🖥️ موزع محرك الرسم (adminRender.js) - Enterprise V19.8 🚀
 // 🎯 الوظيفة: المايسترو الذي يوجه طلبات الرسم للوحدات المعزولة (Micro-Frontends).
-// 🌟 التحديثات المعمارية (V19.7 - Pure Dispatcher Patch): 
-// 1. MVC Purification 🧹: إزالة دوال الـ UI والـ DOM (مثل viewUser) لمنع تداخل الصلاحيات.
-// 2. Dead Code Elimination 🗑️: إزالة دالة (updatePreview) لتتولى الـ MarketingUI مسؤوليتها بالكامل.
-// 3. Server-Side Bridge 🌉: توجيه طلبات الجلب السحابي (Load More) بشكل مباشر للوحدات.
-// 4. Rate Limiting 🛡️: تطبيق (Throttle) على دالة updateBadges لمنع استنزاف قراءات فايربيز.
+// 🌟 التحديثات المعمارية:
+// 1. Event Deduplication 🧹: إزالة تكرار مستمعي الأحداث السبعة (dash, logs, banners, offers, coupons, alerts, integrations) المسجلة مسبقاً داخل الوحدات الفرعية.
+// 2. Listener Guard 🛡️: تفعيل قفل _listenersBound لمنع تكرار ربط الأحداث وإعادة بناء مكتبات السحب SortableJS مرتين.
+// 3. Clean Profile Upload UI 🖼️: بقاء صندوق رفع الصورة الشخصية في حالته الافتراضية النظيفة عند عدم وجود صورة مخصصة، وإزالة الأسطر الميتة.
+// 4. Rate Limiting & Optimistic UI ⚡: الحفاظ على آلية تقييد استدعاءات السيرفر للشارات والتحديث التفاؤلي الفوري.
 // ============================================================================
 
 import { EventBus, Utils } from './adminUtils.js'; 
@@ -37,47 +37,48 @@ SalesRender?.initListeners?.();
 let lastBadgeUpdate = 0;
 
 export const AdminRender = {
-        // ==========================================
-        // 📦 كشف المحركات الفرعية للوحدات (Sub-Renderers Exposure)
-        // ==========================================
-        OrdersRender,
-        FinanceRender,
-        UsersRender,
-        DashboardRender,
-        SalesRender,
-        CatalogRender,
-        MarketingRender,
-        IntegrationsRender,
-        
-        // ==========================================
-        // 🔗 روابط مساعدة الرسم الموحدة (Helpers Bridge)
-        // ==========================================
-        _getTxName: (u) => RenderHelpers._getTxName(u),
-        _getExplicitName: (u) => RenderHelpers._getTxName(u),
-        getCurrencySymbolText: (c) => RenderHelpers.getCurrencySymbolText(c),
-        formatMoney: (...args) => RenderHelpers.formatMoney(...args),
-        _getActiveOfferBadge: (id) => RenderHelpers._getActiveOfferBadge(id),
-        
-        // ==========================================
-        // 📦 تفويض محركات الأقسام (Modules Routing)
-        // ==========================================
-        
-        // 🛒 وحدة الطلبات
-        loadMoreOrders: () => OrdersRender.loadMoreOrders(),
-        renderOrders: (isAppend) => OrdersRender.renderOrders(isAppend),
-        exportOrdersToExcel: () => OrdersRender.exportToExcel(),
-        
-        // 💳 وحدة المالية
-        loadMoreDeposits: () => FinanceRender.loadMoreDeposits(),
-        renderDeposits: (isAppend) => FinanceRender.renderDeposits(isAppend),
-        renderWalletsOverview: () => FinanceRender.renderWalletsOverview(),
-        renderRates: () => FinanceRender.renderRates(),
-        renderPaymentList: () => FinanceRender.renderPaymentList(),
-        renderPayDetailList: (arr) => FinanceRender.renderPayDetailList(arr),
-        exportDepositsToExcel: () => FinanceRender.exportDepositsToExcel(),
-        
-        // 👥 وحدة المستخدمين
-        loadMoreUsers: () => UsersRender.loadMoreUsers(),    updateUserSortLabel: () => UsersRender.updateUserSortLabel(),
+    // ==========================================
+    // 📦 كشف المحركات الفرعية للوحدات (Sub-Renderers Exposure)
+    // ==========================================
+    OrdersRender,
+    FinanceRender,
+    UsersRender,
+    DashboardRender,
+    SalesRender,
+    CatalogRender,
+    MarketingRender,
+    IntegrationsRender,
+    
+    // ==========================================
+    // 🔗 روابط مساعدة الرسم الموحدة (Helpers Bridge)
+    // ==========================================
+    _getTxName: (u) => RenderHelpers._getTxName(u),
+    _getExplicitName: (u) => RenderHelpers._getTxName(u),
+    getCurrencySymbolText: (c) => RenderHelpers.getCurrencySymbolText(c),
+    formatMoney: (...args) => RenderHelpers.formatMoney(...args),
+    _getActiveOfferBadge: (id) => RenderHelpers._getActiveOfferBadge(id),
+    
+    // ==========================================
+    // 📦 تفويض محركات الأقسام (Modules Routing)
+    // ==========================================
+    
+    // 🛒 وحدة الطلبات
+    loadMoreOrders: () => OrdersRender.loadMoreOrders(),
+    renderOrders: (isAppend) => OrdersRender.renderOrders(isAppend),
+    exportOrdersToExcel: () => OrdersRender.exportToExcel(),
+    
+    // 💳 وحدة المالية
+    loadMoreDeposits: () => FinanceRender.loadMoreDeposits(),
+    renderDeposits: (isAppend) => FinanceRender.renderDeposits(isAppend),
+    renderWalletsOverview: () => FinanceRender.renderWalletsOverview(),
+    renderRates: () => FinanceRender.renderRates(),
+    renderPaymentList: () => FinanceRender.renderPaymentList(),
+    renderPayDetailList: (arr) => FinanceRender.renderPayDetailList(arr),
+    exportDepositsToExcel: () => FinanceRender.exportDepositsToExcel(),
+    
+    // 👥 وحدة المستخدمين
+    loadMoreUsers: () => UsersRender.loadMoreUsers(),
+    updateUserSortLabel: () => UsersRender.updateUserSortLabel(),
     renderUsers: () => UsersRender.renderUsers(),
     renderTiers: () => UsersRender.renderTiers(),
     renderTierUsersPage: () => UsersRender.renderTierUsersPage(),
@@ -145,12 +146,24 @@ export const AdminRender = {
             const bOrd = document.getElementById('badge-ord');
             
             if (bDep) { 
-                if (d > 0) { bDep.innerText = Utils.enNum(d); bDep.classList.add('active'); bDep.classList.remove('hide-element'); } 
-                else { bDep.classList.remove('active'); bDep.classList.add('hide-element'); } 
+                if (d > 0) { 
+                    bDep.innerText = Utils.enNum(d); 
+                    bDep.classList.add('active'); 
+                    bDep.classList.remove('hide-element'); 
+                } else { 
+                    bDep.classList.remove('active'); 
+                    bDep.classList.add('hide-element'); 
+                } 
             }
             if (bOrd) { 
-                if (o > 0) { bOrd.innerText = Utils.enNum(o); bOrd.classList.add('active'); bOrd.classList.remove('hide-element'); } 
-                else { bOrd.classList.remove('active'); bOrd.classList.add('hide-element'); } 
+                if (o > 0) { 
+                    bOrd.innerText = Utils.enNum(o); 
+                    bOrd.classList.add('active'); 
+                    bOrd.classList.remove('hide-element'); 
+                } else { 
+                    bOrd.classList.remove('active'); 
+                    bOrd.classList.add('hide-element'); 
+                } 
             }
             if (window.AdminUI?.UsersUI?.updateSidebarKycBadge) {
                 window.AdminUI.UsersUI.updateSidebarKycBadge(k);
@@ -162,8 +175,9 @@ export const AdminRender = {
         } finally {
             this._isUpdatingBadges = false;
         }
-    },    // 🚀 [الحل المعماري لعمى الشارات]: إنقاص العداد محلياً (Optimistic UI) 
-    // لراحة عين المدير دون استنزاف قراءات السيرفر
+    },
+
+    // 🚀 إنقاص العداد محلياً (Optimistic UI) لراحة عين المدير دون استنزاف قراءات السيرفر
     decrementLocalBadge: function(type) {
         const badgeId = type === 'order' ? 'badge-ord' : 'badge-dep';
         const badge = document.getElementById(badgeId);
@@ -172,7 +186,6 @@ export const AdminRender = {
             if (currentVal > 1) {
                 badge.innerText = Utils.enNum(currentVal - 1);
             } else {
-                // إخفاء الشارة تماماً إذا وصل العدد للصفر
                 badge.classList.add('hide-element');
                 badge.classList.remove('active');
             }
@@ -182,14 +195,33 @@ export const AdminRender = {
     updateProfileUI: function() {
         const p = AdminData.data.adminProfile || {};
         const adminEmail = p.email || auth?.currentUser?.email || '';
-        const imgSrc = (p.img && p.img.trim() !== '') ? p.img : 'https://ui-avatars.com/api/?name=Admin&background=0D8ABC&color=fff';
-        ['head-name', 'sb-name-txt'].forEach(id => { const el = document.getElementById(id); if (el) el.innerText = p.name || 'مدير النظام'; });
-        ['head-avatar', 'sb-avatar-img'].forEach(id => { const el = document.getElementById(id); if (el) el.src = imgSrc; });
-        if(document.getElementById('adm-name')) document.getElementById('adm-name').value = p.name || '';
-        if(document.getElementById('adm-email')) document.getElementById('adm-email').value = adminEmail;
-        if(document.getElementById('adm-pass')) document.getElementById('adm-pass').value = '';
+        const hasCustomImg = Boolean(p.img && p.img.trim() !== '');
+        const imgSrc = hasCustomImg ? p.img : 'https://ui-avatars.com/api/?name=Admin&background=0D8ABC&color=fff';
+        
+        ['head-name', 'sb-name-txt'].forEach(id => { 
+            const el = document.getElementById(id); 
+            if (el) el.innerText = p.name || 'مدير النظام'; 
+        });
+        ['head-avatar', 'sb-avatar-img'].forEach(id => { 
+            const el = document.getElementById(id); 
+            if (el) el.src = imgSrc; 
+        });
+        if (document.getElementById('adm-name')) document.getElementById('adm-name').value = p.name || '';
+        if (document.getElementById('adm-email')) document.getElementById('adm-email').value = adminEmail;
+        
         const prev = document.getElementById('adm-img-prev');
-        if (prev) { prev.src = imgSrc; prev.classList.remove('hide-element'); if (prev.parentElement) prev.parentElement.classList.toggle('has-img', Boolean(p.img && p.img.trim() !== '')); }
+        const wrap = document.getElementById('adm-img-wrap');
+        if (prev && wrap) {
+            if (hasCustomImg) {
+                prev.src = p.img;
+                prev.classList.remove('hide-element');
+                wrap.classList.add('has-img');
+            } else {
+                prev.removeAttribute('src');
+                prev.classList.add('hide-element');
+                wrap.classList.remove('has-img');
+            }
+        }
     },
 
     // 🚀 [الرادار]: حقن حالة الإشعارات السحابية في مفاتيح التبديل
@@ -197,7 +229,10 @@ export const AdminRender = {
         const prefs = AdminData.data.adminProfile?.pushPrefs || {
             orders: true, deposits: true, kyc: true, vault: true, complaints: true, system_alerts: true
         };
-        const safeCheck = (id, val) => { const el = document.getElementById(id); if (el) el.checked = val; };
+        const safeCheck = (id, val) => { 
+            const el = document.getElementById(id); 
+            if (el) el.checked = val; 
+        };
         
         safeCheck('pref-orders', prefs.orders !== false);
         safeCheck('pref-deposits', prefs.deposits !== false);
@@ -205,37 +240,32 @@ export const AdminRender = {
         safeCheck('pref-vault', prefs.vault !== false);
         safeCheck('pref-complaints', prefs.complaints !== false);
         safeCheck('pref-system-alerts', prefs.system_alerts !== false);
-    },    // ==========================================
-    // 🎧 تهيئة مستمعات الناقل المركزي (Event Bus Routing)
+    },
+
+    _listenersBound: false,
+
+    // ==========================================
+    // 🎧 تهيئة مستمعات الناقل المركزي غير المسجلة في الوحدات الفرعية
     // ==========================================
     initListeners: function() {
-        EventBus.on('req-render-dash', () => this.renderDashboard());
-        EventBus.on('req-render-sales', () => this.renderSales());
+        if (this._listenersBound) return;
+        this._listenersBound = true;
+
         EventBus.on('req-render-deposits', () => this.renderDeposits());
         EventBus.on('req-render-orders', () => this.renderOrders());
         EventBus.on('req-render-users', () => this.renderUsers());
         EventBus.on('req-update-user-sort', () => this.updateUserSortLabel());
         EventBus.on('req-render-prods', () => this.renderProds());
-        EventBus.on('req-render-banners', () => this.renderBanners());
         EventBus.on('req-render-kyc', () => this.renderKycSystem());
-        EventBus.on('req-render-offers', () => this.renderOffers());
         EventBus.on('req-render-payments', () => this.renderPaymentList());
         EventBus.on('req-render-tiers', () => this.renderTiers());
         EventBus.on('req-render-wallets', () => this.renderWalletsOverview());
-        EventBus.on('req-render-alerts', () => this.renderUnifiedAlerts());
         EventBus.on('req-render-rates', () => this.renderRates());
         EventBus.on('req-render-countries', () => this.renderCountries());
         EventBus.on('req-render-vault', () => this.renderVault());
-        EventBus.on('req-render-coupons', () => this.renderCoupons());
-        EventBus.on('req-render-logs', () => this.renderLogs());
-        EventBus.on('req-render-integrations', () => this.renderSuppliers());
-        
-        // 🚀 [تنظيف الروابط الميتة (Dead Links)]: تم إزالة أحداث الـ UI من هنا (مثل req-update-preview)
         
         EventBus.on('req-render-prod-config', () => this.renderProdConfig());
         EventBus.on('req-update-profile-ui', () => this.updateProfileUI());
-        
-        // 🚀 [الرادار]: الاستماع لحدث فتح نافذة الرادار لتحديث الـ UI
         EventBus.on('req-update-prefs-ui', () => this.updatePrefsUI());
     }
 };

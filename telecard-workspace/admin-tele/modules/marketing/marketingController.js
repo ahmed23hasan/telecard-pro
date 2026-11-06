@@ -1,13 +1,9 @@
 // ============================================================================
-// 🧠 متحكم التسويق (modules/marketing/marketingController.js) - Cloud-Native V20.1 🛡️
-// 🚀 التحديثات المعمارية (V20.1 - Zero Double-Sync & Safe DOM Readers): 
-// 1. Double Delete Fix 🗑️: إزالة أوامر الحذف المزدوجة (delete) والاعتماد على saveCollection للقيام بالحذف الذري.
-// 2. Safe Logo Upload 🖼️: تفريغ الـ input بعد رفع الشعار لمنع إعادة رفعه عند أي تعديل لاحق.
-// 3. Zero Double-Sync ⚡: إزالة الاستدعاءات اليدوية لـ adminForceSyncPricing لمنع تضارب قاعدة البيانات.
-// 4. Safe DOM Readers 🌳: قراءة المنتجات والمستويات وقصص الستوري عبر دوال الـ UI الآمنة.
-// 5. MVC Purification 🧹: تنظيف المتحكم من دوال فتح النوافذ (DOM) لجعله مسؤولاً عن البيانات والمنطق فقط.
-// 6. Data Integrity 🛡️: إزالة Utils.escapeHTML للحفاظ على سلامة الروابط وأسماء الأكواد والنصوص.
-// 7. Advanced Pricing Shield 🛡️: دالة _validatePromoSafetyLocal مطورة تدعم حماية الأقسام والمنتجات وتتخطى المستويات ذات التسعير المخصص.
+// 🧠 متحكم التسويق (modules/marketing/marketingController.js) - Cloud-Native V20.5 🛡️
+// 🚀 التحديثات المعمارية:
+// 1. Single-Pass Image Upload 🖼️: استخدام الصور المضغوطة الجاهزة في saveBanner و saveStoreIdentity دون إعادة ضغطها أو إخفاء اللودر بالخطأ.
+// 2. Strict Selection Validation 🌳: قراءة التحديد الفعلي للمستويات والمنتجات والستوري مباشرة بعد ضبط ترتيب بناء الشجرة.
+// 3. Advanced Pricing Shield 🛡️: دالة _validatePromoSafetyLocal لحماية رأس المال في العروض والكوبونات.
 // ============================================================================
 
 import { AdminData } from '../../adminData.js';
@@ -15,7 +11,6 @@ import { AdminUI } from '../../adminUI.js';
 import { Utils, EventBus } from '../../adminUtils.js';
 import { FirebaseAdapter } from '../../core/firebaseAdapter.js';
 import { serverTimestamp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
-import { UIService } from '../../core/uiService.js';
 import { FinancialEngine } from '../../core/financialEngine.js';
 
 export const MarketingController = {
@@ -32,7 +27,6 @@ export const MarketingController = {
         const hasProds = targetProds.length > 0;
         const hasCats = targetCats.length > 0;
 
-        // 🛡️ الحماية من العروض/الكوبونات اليتيمة مع دعم الأقسام والمنتجات معاً
         if (targetTiers.length === 0 || (!hasProds && !hasCats)) {
             return {
                 isSafe: false,
@@ -77,9 +71,11 @@ export const MarketingController = {
                     if (baseCalc.isFirewallViolated || baseCalc.finalPrice <= 0) continue;
 
                     let testQty = prod.type === 'select' ? 1 : Math.max(1, Number(prod.minQty) || 1);
-const defaultMaxQty = prod.type === 'select' ? 1 : (prod.type === 'counter' ? 5000000 : 100);
-const rawProdMax = Number(prod.type === 'simple' ? (prod.simpleMax || prod.maxQty) : prod.maxQty) || 0;
-const prodMaxQty = prod.type === 'select' ? 1 : Math.min(defaultMaxQty, rawProdMax > 0 ? rawProdMax : defaultMaxQty);           if (prod.type === 'counter' && baseCalc.finalPrice < 0.02) {
+                    const defaultMaxQty = prod.type === 'select' ? 1 : (prod.type === 'counter' ? 5000000 : 100);
+                    const rawProdMax = Number(prod.type === 'simple' ? (prod.simpleMax || prod.maxQty) : prod.maxQty) || 0;
+                    const prodMaxQty = prod.type === 'select' ? 1 : Math.min(defaultMaxQty, rawProdMax > 0 ? rawProdMax : defaultMaxQty);
+                    
+                    if (prod.type === 'counter' && baseCalc.finalPrice < 0.02) {
                         testQty = Math.min(prodMaxQty, Math.max(testQty, Math.ceil(1 / baseCalc.finalPrice)));
                     }
                     if (isCoupon && Number(promoData.minOrder) > 0) {
@@ -147,6 +143,11 @@ const prodMaxQty = prod.type === 'select' ? 1 : Math.min(defaultMaxQty, rawProdM
                 col.oldOfferRef.targetProds = col.oldOfferRef.targetProds.filter(id => String(id) !== col.prodId);
                 if (col.oldOfferRef.visualConfig && col.oldOfferRef.visualConfig.storyProducts) {
                     col.oldOfferRef.visualConfig.storyProducts = col.oldOfferRef.visualConfig.storyProducts.filter(id => String(id) !== col.prodId);
+                }
+                const remainingProds = Array.isArray(col.oldOfferRef.targetProds) ? col.oldOfferRef.targetProds.length : 0;
+                const remainingCats = Array.isArray(col.oldOfferRef.targetCategories) ? col.oldOfferRef.targetCategories.length : 0;
+                if (remainingProds === 0 && remainingCats === 0) {
+                    col.oldOfferRef.isActive = false;
                 }
             } else {
                 newOffer.targetProds = newOffer.targetProds.filter(id => String(id) !== col.prodId);
@@ -222,35 +223,52 @@ const prodMaxQty = prod.type === 'select' ? 1 : Math.min(defaultMaxQty, rawProdM
         const expiryVal = Utils.getVal('offer-expiry');
         const expiryDate = expiryVal ? Number(expiryVal) : null;
         
-        if (!name) return EventBus.emit('req-show-toast', { message: 'يرجى إدخال اسم الحملة', type: 'error' });
-        if (value <= 0 && type !== 'badge_only') return EventBus.emit('req-show-toast', { message: 'قيمة الخصم يجب أن تكون أكبر من صفر', type: 'error' });
+        if (!name) {
+            AdminUI?.MarketingUI?.switchBuilderTab?.('data');
+            setTimeout(() => document.getElementById('offer-name')?.focus(), 50);
+            return EventBus.emit('req-show-toast', { message: '⚠️ حقل مطلوب: يرجى إدخال اسم الحملة أولاً', type: 'error' });
+        }
+        if (value <= 0 && type !== 'badge_only') {
+            AdminUI?.MarketingUI?.switchBuilderTab?.('data');
+            setTimeout(() => document.getElementById('offer-value')?.focus(), 50);
+            return EventBus.emit('req-show-toast', { message: '⚠️ حقل مطلوب: قيمة الخصم يجب أن تكون أكبر من صفر', type: 'error' });
+        }
         
         if ((type === 'real' || type === 'fake') && value > 95) {
+            AdminUI?.MarketingUI?.switchBuilderTab?.('data');
+            setTimeout(() => document.getElementById('offer-value')?.focus(), 50);
             return EventBus.emit('req-show-toast', { message: 'إجراء أمني: أقصى نسبة خصم مسموحة هي 95%', type: 'error' });
         }
         
-        const oldOffer = isEdit ? AdminData.data.offersMap?.[editId] : null;
+        const selectedTiers = AdminUI?.MarketingUI?.getSelectedTiers?.() || [];
+        const selectedProds = AdminUI?.MarketingUI?.getSelectedProds?.() || [];
         
-        let selectedTiers = AdminUI?.MarketingUI?.getSelectedTiers?.() || [];
-        let selectedProds = AdminUI?.MarketingUI?.getSelectedProds?.() || [];
-        
-        if (isEdit && selectedTiers.length === 0 && selectedProds.length === 0 && oldOffer) {
-            selectedTiers = oldOffer.targetTiers || [];
-            selectedProds = oldOffer.targetProds || [];
+        if (selectedTiers.length === 0) {
+            AdminUI?.MarketingUI?.switchBuilderTab?.('data');
+            return EventBus.emit('req-show-toast', { message: '⚠️ يجب تحديد مستوى واحد على الأقل في التبويب الأول', type: 'error' });
+        }
+        if (selectedProds.length === 0) {
+            AdminUI?.MarketingUI?.switchBuilderTab?.('data');
+            return EventBus.emit('req-show-toast', { message: '⚠️ يجب تحديد منتج واحد على الأقل في التبويب الأول', type: 'error' });
         }
         
-        if (selectedTiers.length === 0) return EventBus.emit('req-show-toast', { message: 'يجب تحديد مستوى واحد على الأقل', type: 'error' });
-        if (selectedProds.length === 0) return EventBus.emit('req-show-toast', { message: 'يجب تحديد منتج واحد على الأقل', type: 'error' });
-        
+        const liveBadgeInput = document.getElementById('grid-badge-text');
+        if (liveBadgeInput && AdminUI?.MarketingUI?.visualConfig?.grid) {
+            AdminUI.MarketingUI.visualConfig.grid.badgeText = liveBadgeInput.value.trim();
+        }
+
         const currentVisualConfig = AdminUI?.MarketingUI?.visualConfig ? JSON.parse(JSON.stringify(AdminUI.MarketingUI.visualConfig)) : { storyEnabled: false };
         if (currentVisualConfig.storyEnabled) {
-            let selectedStoryProds = AdminUI?.MarketingUI?.getSelectedStoryProds?.() || [];
-            if (isEdit && selectedStoryProds.length === 0 && oldOffer?.visualConfig?.storyProducts) {
-                selectedStoryProds = oldOffer.visualConfig.storyProducts;
+            const selectedStoryProds = (AdminUI?.MarketingUI?.getSelectedStoryProds?.() || [])
+                .filter(id => selectedProds.includes(String(id)));
+            if (selectedStoryProds.length === 0) {
+                AdminUI?.MarketingUI?.switchBuilderTab?.('story');
+                return EventBus.emit('req-show-toast', { message: '⚠️ يرجى اختيار منتج واحد على الأقل من شجرة القصص (الستوري)', type: 'error' });
             }
-            if (selectedStoryProds.length === 0) return EventBus.emit('req-show-toast', { message: 'يرجى اختيار منتج واحد على الأقل من شجرة القصص', type: 'error' });
             currentVisualConfig.storyProducts = selectedStoryProds;
-        } else { currentVisualConfig.storyProducts = []; }
+        } else {
+            currentVisualConfig.storyProducts = [];
+        }
         
         const offerData = {
             id: isEdit ? editId : 'off_' + Date.now(),
@@ -390,15 +408,8 @@ const prodMaxQty = prod.type === 'select' ? 1 : Math.min(defaultMaxQty, rawProdM
             return EventBus.emit('req-show-toast', { message: 'إجراء أمني: نسبة خصم الكوبون لا يمكن أن تتجاوز 95%', type: 'error' });
         }
 
-        const oldCoupon = isEdit ? AdminData.data.couponsMap?.[editId] : null;
-
-        let selectedTiers = AdminUI?.MarketingUI?.getCouponSelectedTiers?.() || [];
-        let selectedProds = AdminUI?.MarketingUI?.getCouponSelectedProds?.() || [];
-
-        if (isEdit && selectedTiers.length === 0 && selectedProds.length === 0 && oldCoupon) {
-            selectedTiers = oldCoupon.targetTiers || [];
-            selectedProds = oldCoupon.targetProds || [];
-        }
+        const selectedTiers = AdminUI?.MarketingUI?.getCouponSelectedTiers?.() || [];
+        const selectedProds = AdminUI?.MarketingUI?.getCouponSelectedProds?.() || [];
 
         if (selectedTiers.length === 0 || selectedProds.length === 0) {
             return EventBus.emit('req-show-toast', { message: 'يجب تحديد مستوى ومنتج واحد على الأقل', type: 'error' });
@@ -543,19 +554,32 @@ const prodMaxQty = prod.type === 'select' ? 1 : Math.min(defaultMaxQty, rawProdM
 
         const title = Utils.getVal('alert-title').trim();
         const body = Utils.getVal('alert-body').trim();
-        if (!body) return EventBus.emit('req-show-toast', { message: 'يرجى كتابة الرسالة', type: 'error' });
+        if (!title) {
+            document.getElementById('alert-title')?.focus();
+            return EventBus.emit('req-show-toast', { message: '⚠️ حقل مطلوب: يرجى إدخال عنوان الرسالة أولاً', type: 'warning' });
+        }
+        if (!body) {
+            document.getElementById('alert-body')?.focus();
+            return EventBus.emit('req-show-toast', { message: '⚠️ حقل مطلوب: يرجى كتابة نص الرسالة', type: 'error' });
+        }
 
         const targetType = Utils.getVal('alert-target-type', 'all');
         let targetId = null;
-        let targetUser = null; 
-        
+        let targetUser = null;
+
         this._actionLocks.add('send-alert');
 
         try {
             if (targetType === 'user') {
-                const inputVal = Utils.getVal('alert-target-user').trim();
+                const rawInputVal = Utils.getVal('alert-target-user').trim();
+                const inputVal = rawInputVal.replace(/^(#|USR-)\s*/i, '').trim();
+                if (!inputVal) {
+                    document.getElementById('alert-target-user')?.focus();
+                    EventBus.emit('req-show-toast', { message: '⚠️ حقل مطلوب: يرجى إدخال رقم العميل (ID) المستهدف', type: 'warning' });
+                    return;
+                }
                 
-                targetUser = AdminData.data.usersMap?.[inputVal] || (AdminData.data.users || []).find(u => String(u.id) === String(inputVal) || String(u.displayId) === String(inputVal));
+                targetUser = AdminData.data.usersMap?.[rawInputVal] || AdminData.data.usersMap?.[inputVal] || (AdminData.data.users || []).find(u => String(u.id) === String(rawInputVal) || String(u.id) === String(inputVal) || String(u.displayId).toUpperCase() === inputVal.toUpperCase());
                 
                 if (!targetUser) {
                     if (AdminUI?.toggleLoader) AdminUI.toggleLoader(true, 'جاري البحث عن العميل سحابياً...');
@@ -564,15 +588,15 @@ const prodMaxQty = prod.type === 'select' ? 1 : Math.min(defaultMaxQty, rawProdM
                         if (res && res.success && res.data && res.data.length > 0) {
                             targetUser = res.data[0];
                         }
-                    } catch(e) { console.warn(e); }
+                    } catch (e) { console.warn(e); }
                 }
-
-                if (!targetUser) {
-                    EventBus.emit('req-show-toast', { message: 'العميل غير موجود في متجرنا', type: 'error' });
-                    return; 
-                }
-                targetId = targetUser.id; 
                 
+                if (!targetUser) {
+                    document.getElementById('alert-target-user')?.focus();
+                    EventBus.emit('req-show-toast', { message: 'العميل غير موجود في متجرنا، تأكد من صحة المعرف (ID)', type: 'error' });
+                    return;
+                }
+                targetId = targetUser.id;                
             } else if (targetType === 'tier') {
                 targetId = Utils.getVal('alert-target-tier');
                 if (!targetId) {
@@ -600,16 +624,16 @@ const prodMaxQty = prod.type === 'select' ? 1 : Math.min(defaultMaxQty, rawProdM
             };
 
             if (AdminUI?.toggleLoader) AdminUI.toggleLoader(true, 'جاري الإرسال...');
-        if (targetType === 'user') {
-    await Promise.all([
-        FirebaseAdapter.set(`telecard_users/${targetId}/notifications`, newAlert.id, {
-            ...newAlert,
-            targetType: 'notification',
-            targetId: newAlert.id,
-            createdAt: serverTimestamp()
-        }),
-        FirebaseAdapter.set('telecard_alerts', newAlert.id, newAlert)
-    ]);          
+            if (targetType === 'user') {
+                await Promise.all([
+                    FirebaseAdapter.set(`telecard_users/${targetId}/notifications`, newAlert.id, {
+                        ...newAlert,
+                        targetType: 'notification',
+                        targetId: newAlert.id,
+                        createdAt: serverTimestamp()
+                    }),
+                    FirebaseAdapter.set('telecard_alerts', newAlert.id, newAlert)
+                ]);          
                 if (!AdminData.data.alerts) AdminData.data.alerts = [];
                 AdminData.data.alerts.push(newAlert);
                 
@@ -671,27 +695,27 @@ const prodMaxQty = prod.type === 'select' ? 1 : Math.min(defaultMaxQty, rawProdM
         if (this._actionLocks.has('save-banner')) return;
 
         const fileInput = document.getElementById('ban-img-input');
-        const fileToUpload = fileInput?.files?.[0];
-        if (!fileToUpload) return EventBus.emit('req-show-toast', {message: 'اختر صورة للبنر', type: 'warning'});
+        const rawFile = fileInput?.files?.[0];
+        const readyBase64 = (AdminUI?.tempImg && AdminUI.tempImg.startsWith('data:image'))
+            ? AdminUI.tempImg
+            : null;
+        if (!readyBase64 && !rawFile) {
+            return EventBus.emit('req-show-toast', { message: 'اختر صورة للبنر', type: 'warning' });
+        }
 
         this._actionLocks.add('save-banner');
-        if (AdminUI?.toggleLoader) AdminUI.toggleLoader(true, 'جاري ضغط ورفع البانر الإعلاني...'); 
+        if (AdminUI?.toggleLoader) AdminUI.toggleLoader(true, 'جاري رفع البانر الإعلاني للسحابة...'); 
         
         try {
-            const compressedBase64 = await new Promise(resolve => {
-                if (UIService && UIService.processImage) UIService.processImage(fileToUpload, resolve);
-                else resolve(null);
-            });
-
-            let fileForUpload = fileToUpload;
-            if (compressedBase64 && compressedBase64.startsWith('data:image')) {
-                const mimeType = fileToUpload.type === 'image/png' ? 'image/png' : 'image/jpeg';
-                const byteString = atob(compressedBase64.split(',')[1]);
-                const ab = new ArrayBuffer(byteString.length);
-                const ia = new Uint8Array(ab);
-                for (let i = 0; i < byteString.length; i++) ia[i] = byteString.charCodeAt(i);
-                const blob = new Blob([ab], { type: mimeType });
-                fileForUpload = new File([blob], fileToUpload.name, { type: mimeType });
+            let fileForUpload = rawFile;
+            if (readyBase64 && typeof AdminUI?.base64ToBlob === 'function') {
+                const mimeMatch = readyBase64.match(/^data:(image\/[a-zA-Z0-9+.-]+);base64,/);
+                const mimeType = mimeMatch ? mimeMatch[1] : (rawFile?.type || 'image/jpeg');
+                const ext = mimeType.split('/')[1]?.replace('jpeg', 'jpg') || 'jpg';
+                const blob = AdminUI.base64ToBlob(readyBase64, mimeType);
+                if (blob) {
+                    fileForUpload = new File([blob], rawFile?.name || `banner_${Date.now()}.${ext}`, { type: mimeType });
+                }
             }
 
             const finalImgUrl = await FirebaseAdapter.uploadImage(fileForUpload, 'banners');
@@ -714,6 +738,11 @@ const prodMaxQty = prod.type === 'select' ? 1 : Math.min(defaultMaxQty, rawProdM
             EventBus.emit('req-show-toast', {message: 'خطأ أثناء الرفع', type: 'error'}); 
         } finally { 
             this._actionLocks.delete('save-banner');
+            if (fileInput) fileInput.value = '';
+            if (AdminUI) {
+                AdminUI.tempImg = null;
+                AdminUI.tempFile = null;
+            }
             if (AdminUI?.toggleLoader) AdminUI.toggleLoader(false); 
         }
     },
@@ -761,34 +790,33 @@ const prodMaxQty = prod.type === 'select' ? 1 : Math.min(defaultMaxQty, rawProdM
         const processBrandImage = async (baseId, currentUrl) => {
             const inputEl = document.getElementById(`${baseId}-input`) || document.getElementById(baseId);
             const wrapEl = document.getElementById(`${baseId}-wrap`);
+            const previewEl = document.getElementById(`${baseId}-preview`);
             
             if (wrapEl && !wrapEl.classList.contains('has-img')) {
-                if (currentUrl) await FirebaseAdapter.deleteImageByUrl(currentUrl).catch(()=>{});
+                if (currentUrl) await FirebaseAdapter.deleteImageByUrl(currentUrl).catch(() => {});
                 return '';
             }
             
-            if (inputEl && inputEl.files && inputEl.files.length > 0) {
-                if (currentUrl) await FirebaseAdapter.deleteImageByUrl(currentUrl).catch(()=>{});
-                const fileToUpload = inputEl.files[0];
-                
-                const compressedBase64 = await new Promise(resolve => {
-                    if (UIService && UIService.processImage) UIService.processImage(fileToUpload, resolve);
-                    else resolve(null);
-                });
-                let fileForUpload = fileToUpload;
-                if (compressedBase64 && compressedBase64.startsWith('data:image')) {
-                    const mimeType = fileToUpload.type === 'image/png' ? 'image/png' : 'image/jpeg';
-                    const byteString = atob(compressedBase64.split(',')[1]);
-                    const ab = new ArrayBuffer(byteString.length);
-                    const ia = new Uint8Array(ab);
-                    for (let i = 0; i < byteString.length; i++) ia[i] = byteString.charCodeAt(i);
-                    const blob = new Blob([ab], { type: mimeType });
-                    fileForUpload = new File([blob], fileToUpload.name, { type: mimeType });
+            const rawFile = inputEl?.files?.[0];
+            const readyBase64 = (previewEl?.src && previewEl.src.startsWith('data:image'))
+                ? previewEl.src
+                : null;
+
+            if (readyBase64 || rawFile) {
+                if (currentUrl) await FirebaseAdapter.deleteImageByUrl(currentUrl).catch(() => {});
+                let fileForUpload = rawFile;
+                if (readyBase64 && typeof AdminUI?.base64ToBlob === 'function') {
+                    const mimeMatch = readyBase64.match(/^data:(image\/[a-zA-Z0-9+.-]+);base64,/);
+                    const mimeType = mimeMatch ? mimeMatch[1] : (rawFile?.type || 'image/png');
+                    const ext = mimeType.split('/')[1]?.replace('jpeg', 'jpg') || 'png';
+                    const blob = AdminUI.base64ToBlob(readyBase64, mimeType);
+                    if (blob) {
+                        fileForUpload = new File([blob], rawFile?.name || `${baseId}_${Date.now()}.${ext}`, { type: mimeType });
+                    }
                 }
                 
-                if (AdminUI?.toggleLoader) AdminUI.toggleLoader(true, 'جاري رفع شعارات الهوية للسحابة...');
                 const uploadedUrl = await FirebaseAdapter.uploadImage(fileForUpload, 'brand');
-                inputEl.value = '';
+                if (inputEl) inputEl.value = '';
                 return uploadedUrl;
             }
             
@@ -796,7 +824,7 @@ const prodMaxQty = prod.type === 'select' ? 1 : Math.min(defaultMaxQty, rawProdM
         };
 
         this._actionLocks.add('save-brand');
-        if (AdminUI?.toggleLoader) AdminUI.toggleLoader(true, 'جاري ضغط وتحديث هوية المتجر السحابية...');
+        if (AdminUI?.toggleLoader) AdminUI.toggleLoader(true, 'جاري رفع وتحديث هوية المتجر السحابية...');
         
         try {
             const [newLogo, newLogoLight, newFavicon] = await Promise.all([
@@ -817,6 +845,10 @@ const prodMaxQty = prod.type === 'select' ? 1 : Math.min(defaultMaxQty, rawProdM
             EventBus.emit('req-show-toast', {message: 'خطأ أثناء الرفع، تم التراجع عن التغييرات', type: 'error'}); 
         } finally { 
             this._actionLocks.delete('save-brand');
+            if (AdminUI) {
+                AdminUI.tempImg = null;
+                AdminUI.tempFile = null;
+            }
             if (AdminUI?.toggleLoader) AdminUI.toggleLoader(false); 
         }
     },

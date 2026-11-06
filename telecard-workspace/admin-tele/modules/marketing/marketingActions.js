@@ -72,16 +72,10 @@ export const MarketingActions = {
     
     // 🌟 مسار حفظ هوية المتجر الموحد
     'save-store-identity': () => MarketingController.saveStoreIdentity?.(),
-    
-    // 🌟 تشغيل المعاينة اللحظية للشريط الإخباري مباشرة عند الكتابة
-    'update-ticker-preview': (data) => {
-        const val = data?.val !== undefined ? data.val : document.getElementById('promo-text')?.value;
-        const preview = document.getElementById('preview-ticker');
-        if (preview) {
-            preview.innerText = val && String(val).trim() !== '' ? String(val).trim() : 'معاينة النص...';
-        }
-    },
-    
+   // 🌟 تشغيل المعاينة اللحظية للشريط الإخباري مباشرة عند الكتابة
+'update-ticker-preview': (data) => {
+    AdminUI?.MarketingUI?.updateTickerPreviewUI?.(data?.val);
+},    
     'update-brand': () => {
         if (AdminUI?.updateBrandPreview) AdminUI.updateBrandPreview();
     },

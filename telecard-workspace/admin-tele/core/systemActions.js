@@ -60,7 +60,10 @@ export const SystemActions = {
     
     // --- 3. النوافذ المشتركة ---
     'open-modal': (data) => AdminUI?.openModal?.(data.target),
-    'close-modal': (data) => AdminUI?.closeModal?.(data.target || data.id || null),
+    'close-modal': (data) => {
+    const parentModalId = data.target || data.id || data.element?.closest('.modal-overlay, .sys-overlay, .drawer-overlay')?.id || null;
+    AdminUI?.closeModal?.(parentModalId);
+},
     
     'close-drawer': (data) => {
         if (data.type === 'deposit') AdminUI?.closeDepositDrawer?.();
@@ -110,7 +113,7 @@ export const SystemActions = {
     
     'export-excel': (data) => AdminRender?.exportDataToExcel?.(data.type || data.target),
     
-    'copy-text': (data) => AdminUI?.copyText?.(data.copyText, data.originalEvent, data.element),
+    'copy-text': (data) => AdminUI?.copyText?.(data.copyText ?? data.text ?? data.val, data.originalEvent, data.element),
     'copy-to-clipboard': (data) => AdminUI?.copyToClipboard?.(data.element),
     'trigger-click': (data) => document.getElementById(data.target)?.click(),
     'clear-img': (data) => AdminUI?.clearImg?.(data.preview, data.wrap, data.input, data.originalEvent),

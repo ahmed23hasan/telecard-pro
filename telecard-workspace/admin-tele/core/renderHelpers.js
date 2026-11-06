@@ -69,14 +69,13 @@ export const RenderHelpers = Object.freeze({
     // ============================================================================
 
     _buildSmartIdHtml: function(fullId, displayTxt) {
-        const safeDisplay = RenderHelpers._esc(displayTxt);
-        const safeFull = RenderHelpers._esc(fullId);
-        return `<span style="display:inline-flex; align-items:center; gap:6px;">
-            <span class="smart-id-badge" title="نسخ الرقم القصير (للبحث السريع)" data-action="copy-text" data-copy-text="${safeDisplay}" data-text="${safeDisplay}" style="cursor: pointer; border-bottom: 1px dashed var(--text-muted); padding-bottom: 1px;">${safeDisplay}</span>
-            <i class="fa-solid fa-fingerprint text-muted click-shrink" title="نسخ المعرف الكامل لقاعدة البيانات: ${safeFull}" data-action="copy-text" data-copy-text="${safeFull}" data-text="${safeFull}" style="cursor: pointer; font-size: 13px;"></i>
+    const safeDisplay = RenderHelpers._esc(displayTxt);
+    const safeFull = RenderHelpers._esc(fullId);
+    return `<span class="smart-id-wrap">
+            <span class="smart-id-badge click-shrink" title="نسخ الرقم القصير (للبحث السريع)" data-action="copy-text" data-copy-text="${safeDisplay}" data-text="${safeDisplay}">${safeDisplay}</span>
+            <i class="fa-solid fa-fingerprint text-muted click-shrink fs-13" title="نسخ المعرف الكامل لقاعدة البيانات: ${safeFull}" data-action="copy-text" data-copy-text="${safeFull}" data-text="${safeFull}"></i>
         </span>`;
-    },
-
+},
     // ============================================================================
     // 📭 محرك حالات الفراغ الموحد (Unified Empty States - CSS Synced)
     // ============================================================================
@@ -218,8 +217,7 @@ export const RenderHelpers = Object.freeze({
         const symbolClass = isLongText ? 'cur-multi' : 'cur-single';
         const safeCur = RenderHelpers._esc(displayCur);
         
-        return `<span class="money-pro" dir="ltr" style="display: inline-flex; align-items: baseline; gap: 4px; direction: ltr;"><span class="num-en money-val">${formattedNum}</span><span class="cur-symbol ${symbolClass}">${safeCur}</span></span>`;
-    },    
+        return `<span class="money-pro" dir="ltr"><span class="num-en money-val">${formattedNum}</span><span class="cur-symbol ${symbolClass}">${safeCur}</span></span>`;    },    
 
     // ============================================================================
     // 👥 محركات أسماء المستخدمين والشارات
@@ -271,8 +269,7 @@ export const RenderHelpers = Object.freeze({
         
         if (!activeOffer) return '';
         const safeName = RenderHelpers._esc(activeOffer.name);
-        return `<span class="promo-badge b-success icon-ms-2 badge-micro" title="مشمول في عرض: ${safeName}"><i class="fa-solid fa-bolt"></i> عرض نشط</span>`;
-    },
+        return `<span class="promo-badge b-success ms-2 badge-micro" title="مشمول في عرض: ${safeName}"><i class="fa-solid fa-bolt"></i> عرض نشط</span>`;    },
 
     // ============================================================================
     // ⏱️ المحرك الزمني المركزي (Analytics-Safe Logic)

@@ -1,11 +1,10 @@
 // ============================================================================
-// 👥 محرك رسم المستخدمين (modules/users/usersRender.js) - Cloud-Native V20.0 💎
-// 🚀 التحديثات المعمارية (V20.0 - Cloud Multi-Account Radar & 10K-Scale Sync): 
-// 1. Cloud Multi-Account Radar 📡: فحص سحابي شامل في Firestore لكشف الحسابات المشتركة في (الأجهزة + IP).
-// 2. Server-Side Tier Pagination ☁️: جلب عملاء المستوى سحابياً وحفظهم في usersMap مع حماية مربع البحث.
-// 3. DOM Leak Shield 🛡️: تفعيل التدمير الذاتي (dynamic-auto-destroy) لنافذة ملف العميل.
-// 4. Unified Progress Engine ⚙️: الاعتماد المطلق على المحرك المالي لرسم شريط تقدم المستوى.
-// 5. Isolated KYC & Cloud Profile Fetching ⚡: دمج kycPendingUsers وجلب العملاء غير الموجودين بالكاش سحابياً.
+// 👥 محرك رسم المستخدمين (modules/users/usersRender.js) - Cloud-Native V20.6 💎
+// 🚀 التحديثات المعمارية:
+// 1. Request Token Synchronization 🛡️: حماية loadMoreUsers و renderTierUsersPage بـ Request Tokens لمنع تداخل نتائج البحث والترتيب السريع.
+// 2. Auto-Reload After Search Clear 🔄: إعادة جلب القائمة الأصلية من السيرفر تلقائياً عند مغادرة قسم المستخدمين والعودة إليه بعد بحث سابق.
+// 3. Draft Input Preservation ✍️: الحفاظ على النص المكتوب وحالة التركيز في حقل التنبيه المخصص (#user-custom-notif) أثناء التحديث الصامت للنافذة.
+// 4. On-Demand Server Authority ☁️: جلب سجل الطلبات ورادار الأمان فقط عند فتح التبويب المخصص لكل منهما.
 // ============================================================================
 
 import { AdminData } from '../../adminData.js';
@@ -16,16 +15,38 @@ import { FirebaseAdapter } from '../../core/firebaseAdapter.js';
 import { collection, query, where, limit, getDocs } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 
 export const UsersRender = {
-    state: { userSearch: '', sortUsers: 'desc', userSortCategory: 'newest', currentTierId: null, currentEditUserId: null, userHistoryTab: 'orders' },
-
+    state: {
+        userSearch: '',
+        sortUsers: 'desc',
+        userSortCategory: 'newest',
+        currentTierId: null,
+        currentEditUserId: null,
+        userHistoryTab: 'orders',
+        _loadedHistoryForUid: null,
+        _loadedRadarForUid: null,
+        _cachedRadarAccounts: []
+    },
     _renderToken: 0,
+    _usersFetchReqId: 0,
+    _tierUsersFetchReqId: 0,
+    _loadedSearchTerm: '',
+    _needsCloudReload: false,
+    _listenersBound: false,
     _historyListenerAdded: false,
 
     initListeners: function() {
+        if (this._listenersBound) return;
+        this._listenersBound = true;
+
         EventBus.on('state-update', (newState) => { this.state = { ...this.state, ...newState }; });
         EventBus.on('req-render-user-history', () => this.renderUserHistoryList());
         
         EventBus.on('req-clear-render-filters', () => {
+            if (this.state.userSearch !== '' || this._loadedSearchTerm !== '') {
+                this._needsCloudReload = true;
+                AdminData.cursors.users = null;
+                AdminData.data.users = [];
+            }
             this.state.userSearch = '';
         });
         
@@ -34,41 +55,48 @@ export const UsersRender = {
 
     updateUserSortLabel: function() {
         const btn = document.getElementById('btn-user-sort');
-        if(btn) btn.innerHTML = UsersTemplates.userSortLabel(this.state.sortUsers === 'asc');
+        if (btn) btn.innerHTML = UsersTemplates.userSortLabel(this.state.sortUsers === 'asc');
     },
     
     loadMoreUsers: async function() {
-        const btn = document.querySelector('.btn-load-more');
+        const reqId = ++this._usersFetchReqId;
+        const btn = document.querySelector('#load-more-users-btn .btn-load-more');
+        const wrap = document.getElementById('users-container');
+        const isInitialFetch = (!Array.isArray(AdminData.data.users) || AdminData.data.users.length === 0) && !AdminData.cursors.users;
+
         if (btn) {
             btn.innerHTML = '<i class="fa-solid fa-circle-notch fa-spin"></i> جاري التحميل من السحابة...';
             btn.disabled = true;
+        } else if (isInitialFetch && wrap) {
+            wrap.innerHTML = '<div class="empty-state"><i class="fa-solid fa-circle-notch fa-spin"></i><span>جاري جلب بيانات العملاء من السيرفر...</span></div>';
         }
         
         try {
             const searchTerm = (this.state.userSearch || '').trim();
+            const sortCategory = this.state.userSortCategory || 'newest';
+            const sortDir = this.state.sortUsers || 'desc';
             
             const payload = {
                 limit: 50,
                 lastDocId: AdminData.cursors.users,
-                sortCategory: this.state.userSortCategory || 'newest',
-                sortDir: this.state.sortUsers || 'desc',
+                sortCategory: sortCategory,
+                sortDir: sortDir,
                 searchQuery: searchTerm
             };
             
             const res = await FirebaseAdapter.callFunction('adminGetUsersList', payload);
+            if (reqId !== this._usersFetchReqId) return;
+
+            this._loadedSearchTerm = searchTerm;
+            this._needsCloudReload = false;
             
-            if (res && res.success && res.data && res.data.length > 0) {
-                let currentSnapshotData = res.data;
-                let accumulatedData = Array.isArray(AdminData.data.users) ? AdminData.data.users : [];
+            if (res && res.success && Array.isArray(res.data) && res.data.length > 0) {
+                const currentSnapshotData = res.data;
+                const accumulatedData = Array.isArray(AdminData.data.users) ? AdminData.data.users : [];
                 
                 const combinedMap = new Map();
-                
-                if (searchTerm) {
-                    currentSnapshotData.forEach(u => combinedMap.set(u.id, u));
-                } else {
-                    accumulatedData.forEach(u => combinedMap.set(u.id, u));
-                    currentSnapshotData.forEach(u => combinedMap.set(u.id, u));
-                }
+                accumulatedData.forEach(u => combinedMap.set(String(u.id), u));
+                currentSnapshotData.forEach(u => combinedMap.set(String(u.id), u));
                 
                 AdminData.data.users = Array.from(combinedMap.values());
                 AdminData.data.users.forEach(u => { AdminData.data.usersMap[String(u.id)] = u; });
@@ -77,52 +105,61 @@ export const UsersRender = {
                     AdminData.cursors.users = res.pagination.lastDocId;
                 } else {
                     AdminData.cursors.users = null;
-                    if (btn) {
-                        btn.innerHTML = '<i class="fa-solid fa-check"></i> لا يوجد عملاء أقدم';
-                        btn.classList.add('disabled', 'text-muted');
-                        btn.disabled = true;
-                    }
                 }
                 
                 this.renderUsers();
             } else {
                 AdminData.cursors.users = null;
-                if (btn) {
-                    btn.innerHTML = '<i class="fa-solid fa-check"></i> لا توجد نتائج مطابقة';
-                    btn.classList.add('disabled', 'text-muted');
-                    btn.disabled = true;
-                }
-                if (searchTerm) {
+                if (isInitialFetch) {
                     AdminData.data.users = [];
                     this.renderUsers();
+                } else if (btn) {
+                    btn.innerHTML = '<i class="fa-solid fa-check"></i> لا توجد نتائج إضافية';
+                    btn.classList.add('btn-disabled', 'text-muted');
+                    btn.disabled = true;
                 }
             }
         } catch (error) {
+            if (reqId !== this._usersFetchReqId) return;
             console.error("🚨 فشل جلب المزيد من العملاء سحابياً:", error);
             if (btn) {
                 btn.innerHTML = '<i class="fa-solid fa-rotate-right"></i> حاول مجدداً';
                 btn.disabled = false;
+            } else if (isInitialFetch && wrap) {
+                wrap.innerHTML = '<div class="empty-state"><i class="fa-solid fa-triangle-exclamation text-danger"></i><span>تعذر جلب بيانات العملاء من السيرفر.</span></div>';
             }
         }
     },
     
     renderUsers: function() {
         const wrap = document.getElementById('users-container');
-        if(!wrap) return;
+        if (!wrap) return;
+
+        if (this._needsCloudReload) {
+            this._needsCloudReload = false;
+            this.loadMoreUsers();
+            return;
+        }
 
         let users = Array.isArray(AdminData.data.users) ? [...AdminData.data.users] : [];
 
-        if(!users.length) { 
-            wrap.innerHTML = this.state.userSearch ? `<div class="empty-state"><i class="fa-solid fa-search"></i><span>لم يتم العثور على العميل "${Utils.escapeHTML(this.state.userSearch)}" في قاعدة البيانات.</span></div>` : UsersTemplates.emptyUsers(); 
+        if (!users.length) { 
+            wrap.innerHTML = this.state.userSearch 
+                ? `<div class="empty-state"><i class="fa-solid fa-search"></i><span>لم يتم العثور على العميل "${Utils.escapeHTML(this.state.userSearch)}" في قاعدة البيانات.</span></div>` 
+                : UsersTemplates.emptyUsers(); 
             return; 
         }
 
         const sortCat = this.state.userSortCategory || 'newest';
+        const sortSelectEl = document.getElementById('user-sort-type');
+        if (sortSelectEl && sortSelectEl.value !== sortCat) {
+            sortSelectEl.value = sortCat;
+        }
         
         this._renderToken = Date.now();
         const currentToken = this._renderToken;
         
-        const hasMoreInCloud = AdminData.cursors.users !== null && AdminData.cursors.users !== undefined && !this.state.userSearch;
+        const hasMoreInCloud = AdminData.cursors.users !== null && AdminData.cursors.users !== undefined;
         const loadMoreHtml = hasMoreInCloud ? `
             <div class="load-more-container mt-15 mb-15 w-100 text-center" id="load-more-users-btn">
                 <button class="btn btn-ghost btn-load-more" data-action="load-more-users">
@@ -130,6 +167,7 @@ export const UsersRender = {
                 </button>
             </div>` : '';
         
+        wrap.className = 'w-100';
         wrap.innerHTML = `<div class="users-grid" id="users-grid-container"></div>${loadMoreHtml}`;
         const grid = document.getElementById('users-grid-container');
         
@@ -163,9 +201,9 @@ export const UsersRender = {
     viewUser: async function(id, preventModalOpen = false) {
         const strId = String(id);
         let u = AdminData.data.usersMap?.[strId] ||
-                (AdminData.data.users || []).find(x => String(x.id) === strId) ||
-                (AdminData.data.kycPendingUsers || []).find(x => String(x.id) === strId);
-
+            (AdminData.data.users || []).find(x => String(x.id) === strId) ||
+            (AdminData.data.kycPendingUsers || []).find(x => String(x.id) === strId);
+        
         if (!u) {
             if (window.AdminUI?.toggleLoader) window.AdminUI.toggleLoader(true, 'جاري استدعاء ملف العميل سحابياً...');
             try {
@@ -180,10 +218,19 @@ export const UsersRender = {
                 if (window.AdminUI?.toggleLoader) window.AdminUI.toggleLoader(false);
             }
         }
-
-        if(!u) {
+        
+        if (!u) {
             if (window.AdminUI?.showToast) window.AdminUI.showToast("لا يمكن العثور على بيانات هذا العميل حالياً.", "error");
             return;
+        }
+        
+        const isSwitchingToAnotherUser = (this.state.currentEditUserId !== strId);
+        if (!preventModalOpen || isSwitchingToAnotherUser) {
+            this.state._loadedHistoryForUid = null;
+            this.state._loadedRadarForUid = null;
+            this.state._cachedRadarAccounts = [];
+            this.state.userHistoryTab = 'orders';
+            AdminData.tempUserHistory = { all: [] };
         }
         
         this.state.currentEditUserId = strId;
@@ -193,94 +240,88 @@ export const UsersRender = {
         const safeCurrency = Utils.escapeHTML(u.baseCurrency || 'USD');
         const rawName = RenderHelpers._getTxName(u);
         const joinDate = (u.joinDate || u.createdAt || u.date) ? RenderHelpers.formatSafeDate(u.joinDate || u.createdAt || u.date) : 'غير متوفر';
-
+        
         const userTier = AdminData.data.tiersMap?.[u.tierId] || AdminData.data.tiers.find(t => String(t.id) === String(u.tierId));
         const tierName = userTier ? Utils.escapeHTML(userTier.name) : 'عادي (افتراضي)';
-
-        const userAllOrders = (AdminData.data.orders || []).filter(o => String(o.userId) === strId).map(o => ({ ...o, txType: 'order' }));
-        const userAllDeposits = (AdminData.data.deposits || []).filter(d => String(d.userId) === strId).map(d => ({ ...d, txType: 'deposit' }));
-
-        const combinedActivity = [...userAllOrders, ...userAllDeposits].sort((a, b) => {
-            return RenderHelpers.parseTime(b.time || b.date || b.createdAt) - RenderHelpers.parseTime(a.time || a.date || a.createdAt);
-        });
-
-        this.state.userHistoryTab = 'orders';
-        AdminData.tempUserHistory = { all: combinedActivity };
-
-        const relatedAccounts = [];
-        const userDevices = Array.isArray(u.devicePrints) ? u.devicePrints : [];
-        const userLastIp = String(u.lastIp || u.ipAddress || u.ip || '').trim();
-        const allCachedUsers = Object.values(AdminData.data.usersMap || {});
-
-        if (userDevices.length > 0 || (userLastIp && userLastIp !== 'غير متوفر')) {
-            allCachedUsers.forEach(otherUser => {
-                if (!otherUser || String(otherUser.id) === strId || otherUser.isDeleted) return;
-                const otherDevices = Array.isArray(otherUser.devicePrints) ? otherUser.devicePrints : [];
-                const otherIp = String(otherUser.lastIp || otherUser.ipAddress || otherUser.ip || '').trim();
-                
-                const hasCommonDevice = userDevices.length > 0 && otherDevices.some(dev => userDevices.includes(dev));
-                const hasCommonIp = Boolean(userLastIp && userLastIp !== 'غير متوفر' && otherIp === userLastIp);
-                
-                if (hasCommonDevice || hasCommonIp) {
-                    const reason = (hasCommonDevice && hasCommonIp) ? 'جهاز + IP' : (hasCommonDevice ? 'نفس الجهاز' : 'نفس الـ IP');
-                    relatedAccounts.push({
-                        id: otherUser.id,
-                        name: RenderHelpers._getTxName(otherUser),
-                        isBanned: Boolean(otherUser.isBanned || otherUser.isIpBanned),
-                        reason
-                    });
-                }
-            });
-        }
-
+        
         const userReview = (AdminData.data.reviews || []).find(r => String(r.userId) === strId);
-
-        const uiData = { 
-            bal, safeCurrency, rawName, joinDate, tierName, 
-            totalOrdersCount: Math.max(Number(u.totalOrdersCount || 0), userAllOrders.length), 
-            totalSpent: Number(u.totalSpent || 0), 
-            relatedAccounts: relatedAccounts,
+        
+        const uiData = {
+            bal,
+            safeCurrency,
+            rawName,
+            joinDate,
+            tierName,
+            totalOrdersCount: Number(u.totalOrdersCount || 0),
+            totalSpent: Number(u.totalSpent || 0),
+            relatedAccounts: this.state._cachedRadarAccounts || [],
             userReview: userReview
-        };        
-
+        };
+        
         let modal = document.getElementById('m-user-detail');
         if (!modal) {
             modal = document.createElement('div');
             modal.id = 'm-user-detail';
-            modal.className = 'modal-overlay dynamic-auto-destroy'; 
+            modal.className = 'modal-overlay dynamic-auto-destroy';
             document.body.appendChild(modal);
         }
-
+        
         const activeTabBtn = modal.querySelector('.ud-tab-btn.active');
-        const currentTab = activeTabBtn ? activeTabBtn.dataset.tab : 'overview';
-
+        const currentTab = (preventModalOpen && !isSwitchingToAnotherUser && activeTabBtn) ? activeTabBtn.dataset.tab : 'overview';
+        const previousNotifDraft = (preventModalOpen && !isSwitchingToAnotherUser)
+            ? (document.getElementById('user-custom-notif')?.value || '')
+            : '';
+        const wasNotifFocused = Boolean(
+            preventModalOpen &&
+            !isSwitchingToAnotherUser &&
+            document.activeElement?.id === 'user-custom-notif'
+        );
+        
         modal.innerHTML = UsersTemplates.userDetailModal(u, uiData);
+
+        if (previousNotifDraft) {
+            const notifEl = document.getElementById('user-custom-notif');
+            if (notifEl) {
+                notifEl.value = previousNotifDraft;
+                if (wasNotifFocused) notifEl.focus();
+            }
+        }
         
         this.renderUserHistoryList();
         this.switchUserTab(currentTab);
         
-        if(!preventModalOpen) {
+        if (!preventModalOpen) {
             void modal.offsetWidth;
-            
-            requestAnimationFrame(() => {
-                modal.classList.add('active');
-            });
             EventBus.emit('req-open-modal', 'user-detail');
         }
-
-        EventBus.emit('action-triggered', { action: 'fetch-user-history', id: strId, loadMore: false });
-        this.scanCloudMultiAccountsRadar(u, relatedAccounts);
+        
+        if (!userReview && !AdminData._reviewsLoaded && !u._reviewChecked) {
+            u._reviewChecked = true;
+            getDocs(query(collection(FirebaseAdapter.db, 'telecard_reviews'), where('userId', '==', strId), limit(1)))
+                .then(snap => {
+                    if (!snap.empty) {
+                        const revDoc = { id: snap.docs[0].id, ...snap.docs[0].data() };
+                        if (!Array.isArray(AdminData.data.reviews)) AdminData.data.reviews = [];
+                        if (!AdminData.data.reviews.some(r => String(r.id) === String(revDoc.id))) {
+                            AdminData.data.reviews.push(revDoc);
+                        }
+                        if (this.state.currentEditUserId === strId && document.getElementById('m-user-detail')?.classList.contains('active')) {
+                            this.viewUser(strId, true);
+                        }
+                    }
+                }).catch(() => {});
+        }
     },
-
+    
     scanCloudMultiAccountsRadar: async function(u, initialRelated = []) {
         if (!u || !u.id) return;
         const strId = String(u.id);
         const userDevices = Array.isArray(u.devicePrints) ? u.devicePrints.filter(Boolean).slice(0, 10) : [];
         const userLastIp = String(u.lastIp || u.ipAddress || u.ip || '').trim();
         const hasValidIp = Boolean(userLastIp && userLastIp !== 'غير متوفر' && userLastIp !== 'غير معروف');
-
+        
         if (userDevices.length === 0 && !hasValidIp) return;
-
+        
         try {
             const usersCol = collection(FirebaseAdapter.db, 'telecard_users');
             const queries = [];
@@ -290,27 +331,27 @@ export const UsersRender = {
             if (hasValidIp) {
                 queries.push(getDocs(query(usersCol, where('lastIp', '==', userLastIp), limit(15))));
             }
-
+            
             const settledResults = await Promise.allSettled(queries);
             const mergedMap = new Map();
             initialRelated.forEach(item => mergedMap.set(String(item.id), item));
-
+            
             settledResults.forEach(res => {
                 if (res.status !== 'fulfilled' || !res.value) return;
-                res.value.forEach(docSnap => {                    
+                res.value.forEach(docSnap => {
                     if (String(docSnap.id) === strId) return;
                     const otherUser = { id: docSnap.id, ...docSnap.data() };
                     if (otherUser.isDeleted) return;
-
+                    
                     if (!AdminData.data.usersMap) AdminData.data.usersMap = {};
                     if (!AdminData.data.usersMap[docSnap.id]) AdminData.data.usersMap[docSnap.id] = otherUser;
-
+                    
                     const otherDevices = Array.isArray(otherUser.devicePrints) ? otherUser.devicePrints : [];
                     const otherIp = String(otherUser.lastIp || otherUser.ipAddress || otherUser.ip || '').trim();
-
+                    
                     const hasCommonDevice = userDevices.length > 0 && otherDevices.some(dev => userDevices.includes(dev));
                     const hasCommonIp = hasValidIp && otherIp === userLastIp;
-
+                    
                     if (hasCommonDevice || hasCommonIp) {
                         const reason = (hasCommonDevice && hasCommonIp) ? 'جهاز + IP' : (hasCommonDevice ? 'نفس الجهاز' : 'نفس الـ IP');
                         mergedMap.set(String(otherUser.id), {
@@ -322,10 +363,14 @@ export const UsersRender = {
                     }
                 });
             });
-
-            const radarBoxEl = document.getElementById('ud-radar-box-target');
-            if (radarBoxEl && this.state.currentEditUserId === strId) {
-                radarBoxEl.innerHTML = UsersTemplates.radarBoxContent(Array.from(mergedMap.values()));
+            
+            const finalRadarList = Array.from(mergedMap.values());
+            if (this.state.currentEditUserId === strId) {
+                this.state._cachedRadarAccounts = finalRadarList;
+                const radarBoxEl = document.getElementById('ud-radar-box-target');
+                if (radarBoxEl) {
+                    radarBoxEl.innerHTML = UsersTemplates.radarBoxContent(finalRadarList);
+                }
             }
         } catch (radarErr) {
             console.warn("⚠️ تعذر فحص رادار الحسابات المتعددة سحابياً:", radarErr.message);
@@ -381,9 +426,9 @@ export const UsersRender = {
 
         const currentLimit = AdminData.tempUserHistoryLimit || 25;
         if (filteredData.length < currentLimit && allHistory.length < (currentLimit * 2)) {
-            if (loadMoreBtn) loadMoreBtn.style.display = 'none';
+            if (loadMoreBtn) loadMoreBtn.classList.add('hide-element');
         } else {
-            if (loadMoreBtn) loadMoreBtn.style.display = 'inline-block';
+            if (loadMoreBtn) loadMoreBtn.classList.remove('hide-element');
         }
     },
 
@@ -404,35 +449,54 @@ export const UsersRender = {
         try {
             const modal = document.getElementById('m-user-detail');
             const root = modal || document;
-
-            root.querySelectorAll('.ud-tab-btn').forEach(btn => btn.classList.remove('active'));
+            
+            root.querySelectorAll('.ud-tab-btn').forEach(btn => {
+                const isTarget = (btn.dataset.tab === tabId);
+                if (isTarget) {
+                    btn.classList.add('active', 'btn-primary');
+                    btn.classList.remove('btn-ghost');
+                } else {
+                    btn.classList.remove('active', 'btn-primary');
+                    btn.classList.add('btn-ghost');
+                }
+            });
+            
             root.querySelectorAll('.ud-tab-content, #ud-body > div').forEach(content => {
                 content.classList.remove('active');
                 content.classList.add('hide-element');
-                content.style.display = 'none';
             });
-
-            const targetBtn = root.querySelector(`.ud-tab-btn[data-tab="${tabId}"]`);
-            if (targetBtn) targetBtn.classList.add('active');
-
+            
             const targetContent = document.getElementById(tabId) ||
                 document.getElementById(`tab-${tabId}`) ||
                 document.getElementById(`ud-${tabId}`) ||
                 document.getElementById(`ud-tab-${tabId}`);
-
+            
             if (targetContent) {
                 targetContent.classList.add('active');
                 targetContent.classList.remove('hide-element');
-                targetContent.style.display = 'block';
             }
-        } catch (error) { console.error("🚨 خطأ في تبديل تبويبات العميل:", error); }
+
+            const strId = this.state.currentEditUserId;
+            if (!strId) return;
+
+            if (tabId === 'orders' && this.state._loadedHistoryForUid !== strId) {
+                this.state._loadedHistoryForUid = strId;
+                EventBus.emit('action-triggered', { action: 'fetch-user-history', id: strId, loadMore: false });
+            } else if (tabId === 'security' && this.state._loadedRadarForUid !== strId) {
+                this.state._loadedRadarForUid = strId;
+                const u = AdminData.data.usersMap?.[strId];
+                if (u) this.scanCloudMultiAccountsRadar(u, []);
+            }
+        } catch (error) { 
+            console.error("🚨 خطأ في تبديل تبويبات العميل:", error); 
+        }
     },
 
     renderTiers: async function() {
         const cont = document.getElementById('tiers-container');
-        if(!cont) return;
+        if (!cont) return;
         const tiers = Array.isArray(AdminData.data.tiers) ? AdminData.data.tiers : [];
-        if(tiers.length === 0) { 
+        if (tiers.length === 0) { 
             cont.innerHTML = UsersTemplates.emptyTiers(); 
             return; 
         }
@@ -440,7 +504,6 @@ export const UsersRender = {
         const tiersStats = AdminData.data.tiersStats || {};
         const localUsers = Array.isArray(AdminData.data.users) ? AdminData.data.users : [];
 
-        // ⚡ 1. رسم فوري في 0ms من الذاكرة لمنع اختفاء المستويات أثناء انتظار الشبكة
         cont.innerHTML = tiers.map(t => {
             const cachedCount = AdminData.data.tierUserCounts?.[t.id];
             const fallbackLocalCount = localUsers.filter(u => u && !u.isDeleted && String(u.tierId) === String(t.id)).length;
@@ -449,7 +512,6 @@ export const UsersRender = {
             return UsersTemplates.tierCard(t, userCount, tStats);
         }).join('');
 
-        // ☁️ 2. جلب العدد الحقيقي لعملاء كل مستوى من السيرفر في الخلفية وتحديث الرقم فوراً
         if (!AdminData.data.tierUserCounts) {
             AdminData.data.tierUserCounts = {};
             await Promise.all(tiers.map(async (t) => {
@@ -469,7 +531,7 @@ export const UsersRender = {
     showTierUsersPage: function(tierId) {
         document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
         let tierUsersSection = document.getElementById('view-tier-users');
-        if(!tierUsersSection) {
+        if (!tierUsersSection) {
             tierUsersSection = document.createElement('div');
             tierUsersSection.id = 'view-tier-users';
             tierUsersSection.className = 'section';
@@ -480,31 +542,33 @@ export const UsersRender = {
         this.state.currentTierId = tierId;
         EventBus.emit('state-update', { currentTierId: tierId });
 
-        document.getElementById('tier-users-title').textContent = `عملاء ${tier?.name||'المستوى'}`;
-        if(tier) {
+        document.getElementById('tier-users-title').textContent = `عملاء ${tier?.name || 'المستوى'}`;
+        if (tier) {
             document.getElementById('tier-name').textContent = tier.name;
             const iconBox = document.querySelector('.tier-info-card .tic-icon-box i');
-            if(iconBox) iconBox.className = `fa-solid ${Utils.escapeHTML(tier.icon||'fa-user')}`;
+            if (iconBox) iconBox.className = `fa-solid ${Utils.escapeHTML(tier.icon || 'fa-user')}`;
             
             const tStats = AdminData.data.tiersStats?.[String(tier.id)] || { profit: 0, revenue: 0 };
             const tierInfo = document.querySelector('.tier-info-card .tier-stats');
-            if(tierInfo) tierInfo.innerHTML = UsersTemplates.tierInfoStats(tier, tStats);
+            if (tierInfo) tierInfo.innerHTML = UsersTemplates.tierInfoStats(tier, tStats);
         }
         tierUsersSection.classList.add('active');
         this.renderTierUsersPage();
     },
 
     renderTierUsersPage: async function(isLoadMore = false, isCloudSearch = false) {
+        const reqId = ++this._tierUsersFetchReqId;
         const tierId = this.state.currentTierId;
         const container = document.getElementById('tier-users-container');
-        if(!container) return;
-
-        // 🛡️ ضمان وجود مربع البحث وحاوية البطاقات دون هدم مربع البحث أثناء الكتابة
+        if (!container) return;
+        
+        container.classList.remove('tier-users-table');
+        container.classList.add('w-100');
+        
         if (!container.querySelector('.tier-search-box-wrapper') || (!isLoadMore && !isCloudSearch)) {
             const searchBoxHtml = (UsersTemplates && typeof UsersTemplates.tierUsersSearchBox === 'function') ? UsersTemplates.tierUsersSearchBox() : '';
             container.innerHTML = `${searchBoxHtml}<div class="tier-users-table" id="tier-users-list-target"></div>`;
         }
-
         const searchInputObj = container.querySelector('.tier-search-box-wrapper input');
         const term = searchInputObj ? searchInputObj.value.toLowerCase().trim() : '';
         const listTarget = document.getElementById('tier-users-list-target') || container;
@@ -513,7 +577,7 @@ export const UsersRender = {
         if (emptySearchLoader) emptySearchLoader.remove();
 
         if (!isLoadMore) {
-            listTarget.innerHTML = '<div class="text-center mt-20 text-muted w-100" style="grid-column: 1 / -1;"><i class="fa-solid fa-circle-notch fa-spin"></i> جاري جلب عملاء المستوى سحابياً...</div>';
+            listTarget.innerHTML = '<div class="empty-state"><i class="fa-solid fa-circle-notch fa-spin"></i><span>جاري جلب عملاء المستوى سحابياً...</span></div>';
         }
 
         try {
@@ -527,6 +591,7 @@ export const UsersRender = {
             };
 
             const res = await FirebaseAdapter.callFunction('adminGetUsersList', payload);
+            if (reqId !== this._tierUsersFetchReqId) return;
             
             let fetchedUsers = [];
             if (res && res.success && res.data) {
@@ -546,7 +611,7 @@ export const UsersRender = {
             const existingBtn = document.getElementById('btn-load-more-tier');
             if (existingBtn) existingBtn.remove();
 
-            if(!fetchedUsers.length && !isLoadMore){ 
+            if (!fetchedUsers.length && !isLoadMore) { 
                 listTarget.innerHTML = UsersTemplates.emptyTierUsers(); 
                 return; 
             }
@@ -586,6 +651,7 @@ export const UsersRender = {
                 container.insertAdjacentHTML('beforeend', loadMoreBtnHtml);
             }        
         } catch (e) {
+            if (reqId !== this._tierUsersFetchReqId) return;
             console.error(e);
             listTarget.innerHTML = '<div class="text-danger p-15"><i class="fa-solid fa-triangle-exclamation"></i> فشل جلب العملاء السحابي.</div>';
         }
@@ -609,8 +675,8 @@ export const UsersRender = {
         let requestsHtml = '';
         if (pendingRequests.length > 0) {
             const searchHtml = UsersTemplates.kycSearchBox ? UsersTemplates.kycSearchBox() : '';
-            const headerHtml = UsersTemplates.kycPendingHeader ? UsersTemplates.kycPendingHeader(pendingRequests.length) : `<h6 class="mb-3 fw-bold text-warning"><i class="fa-solid fa-file-shield"></i> طلبات بانتظار المراجعة (${pendingRequests.length})</h6>`;
-            requestsHtml = `<div class="mt-4">${headerHtml}${searchHtml}<div id="kyc-requests-container" class="kyc-requests-list">${pendingRequests.map(u => UsersTemplates.kycRequestCard(u)).join('')}</div></div>`;
+            const headerHtml = UsersTemplates.kycPendingHeader ? UsersTemplates.kycPendingHeader(pendingRequests.length) : `<h6 class="mb-15 fw-bold text-warning"><i class="fa-solid fa-file-shield"></i> طلبات بانتظار المراجعة (${pendingRequests.length})</h6>`;
+            requestsHtml = `<div class="mt-20">${headerHtml}${searchHtml}<div id="kyc-requests-container" class="kyc-requests-list">${pendingRequests.map(u => UsersTemplates.kycRequestCard(u)).join('')}</div></div>`;
         } else {
             const emptyType = hasAnyKycHistory ? 'done' : 'empty';
             requestsHtml = UsersTemplates.emptyKycState ? UsersTemplates.emptyKycState(emptyType) : '<div class="empty-state">لا توجد طلبات</div>';
@@ -619,7 +685,9 @@ export const UsersRender = {
 
         setTimeout(() => {
             const searchInput = document.getElementById('kyc-search-input');
-            if (searchInput && searchInput.value && window.AdminUI?.UsersUI?.filterKycRequests) { window.AdminUI.UsersUI.filterKycRequests(searchInput.value); }
+            if (searchInput && searchInput.value && window.AdminUI?.UsersUI?.filterKycRequests) { 
+                window.AdminUI.UsersUI.filterKycRequests(searchInput.value); 
+            }
         }, 10);
     }
 };
